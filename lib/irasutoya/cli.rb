@@ -1,4 +1,6 @@
-require "irasutoya/cli/version"
+# frozen_string_literal: true
+
+require 'irasutoya/cli/version'
 
 module Irasutoya
   module Cli
