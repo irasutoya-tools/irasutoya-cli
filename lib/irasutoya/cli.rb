@@ -12,10 +12,10 @@ module Irasutoya
       desc 'random', 'Gives you random irasutoya image'
       def random
         irasuto = Irasutoya::Irasuto.random
-        puts irasuto.url
-        puts irasuto.title
-        puts irasuto.description
-        puts irasuto.image_url
+        say "Page URL:    #{irasuto.url}"
+        say "Title:       #{irasuto.title}"
+        say "Description: #{irasuto.description}"
+        say "Image URL:   #{irasuto.image_url}"
         TerminalImage.show_url(irasuto.image_url)
       rescue TerminalImage::UnsupportedTerminal
         say 'warn: This terminal is not able to show images inline', :yellow
