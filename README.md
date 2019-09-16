@@ -15,6 +15,8 @@
 $ gem install irasutoya-cli
 ```
 
+To see preview of image, you need to use [iTerm2](https://iterm2.com/index.html) or terminals with [libsixel](https://github.com/saitoha/libsixel) installed.
+
 ## Usage
 
 ```sh
