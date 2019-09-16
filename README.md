@@ -1,6 +1,7 @@
 # Irasutoya::Cli
 
 [![Gem Version](https://badge.fury.io/rb/irasutoya-cli.svg)](https://badge.fury.io/rb/irasutoya-cli)
+[![Circle CI](https://circleci.com/gh/unhappychoice/irasutoya-cli.svg?style=shield)](https://circleci.com/gh/unhappychoice/irasutoya-cli)
 [![Code Climate](https://codeclimate.com/github/unhappychoice/irasutoya-cli/badges/gpa.svg)](https://codeclimate.com/github/unhappychoice/irasutoya-cli)
 [![codecov](https://codecov.io/gh/unhappychoice/irasutoya-cli/branch/master/graph/badge.svg)](https://codecov.io/gh/unhappychoice/irasutoya-cli)
 [![Libraries.io dependency status for GitHub repo](https://img.shields.io/librariesio/github/unhappychoice/irasutoya-cli.svg)](https://libraries.io/github/unhappychoice/irasutoya-cli)
