@@ -39,7 +39,7 @@ GEM
       rubocop (~> 0.20)
     irasutoya (1.0.0)
       nokogiri
-    jaro_winkler (1.5.3)
+    jaro_winkler (1.5.4)
     json (2.2.0)
     listen (3.2.0)
       rb-fsevent (~> 0.10, >= 0.10.3)
