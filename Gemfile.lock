@@ -94,7 +94,7 @@ GEM
     terminal_image (0.3.0)
       fastimage
     thor (1.0.1)
-    unicode-display_width (1.6.0)
+    unicode-display_width (1.6.1)
     url (0.3.2)
 
 PLATFORMS
