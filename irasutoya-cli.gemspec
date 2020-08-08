@@ -7,6 +7,7 @@ require 'irasutoya/cli/version'
 Gem::Specification.new do |spec|
   spec.name          = 'irasutoya-cli'
   spec.version       = Irasutoya::Cli::VERSION
+  spec.required_ruby_version = '>= 2.5'
   spec.authors       = ['Yuji Ueki']
   spec.email         = ['unhappychoice@gmail.com']
 
