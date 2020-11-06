@@ -25,6 +25,7 @@ $ irasutoya
 Commands:
   irasutoya help [COMMAND]  # Describe available commands or one specific command
   irasutoya random          # Gives you random irasutoya image
+  irasutoya search {query}  # Gives you irasutoya 3 images by given query
 ```
 
 ## Contributing
