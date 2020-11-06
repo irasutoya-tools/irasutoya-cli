@@ -1,7 +1,7 @@
 PATH
   remote: .
   specs:
-    irasutoya-cli (0.1.0)
+    irasutoya-cli (0.2.0)
       irasutoya
       terminal_image
       thor
