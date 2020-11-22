@@ -8,6 +8,7 @@ require 'thor'
 module Irasutoya
   module Cli
     class Error < StandardError; end
+
     class Runner < Thor
       desc 'random', 'Gives you random irasutoya image'
       def random
