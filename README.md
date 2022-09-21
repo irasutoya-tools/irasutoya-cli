@@ -7,6 +7,7 @@
 [![Libraries.io dependency status for GitHub repo](https://img.shields.io/librariesio/github/unhappychoice/irasutoya-cli.svg)](https://libraries.io/github/unhappychoice/irasutoya-cli)
 ![](http://ruby-gem-downloads-badge.herokuapp.com/irasutoya-cli?type=total)
 ![GitHub](https://img.shields.io/github/license/unhappychoice/irasutoya-cli.svg)
+[![kandi X-Ray](https://kandi.openweaver.com/badges/xray.svg)](https://kandi.openweaver.com/ruby/unhappychoice/irasutoya-cli)
 
 ![](./images/example.png)
 
