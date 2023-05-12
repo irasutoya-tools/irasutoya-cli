@@ -98,7 +98,7 @@ GEM
     simplecov_json_formatter (0.1.4)
     terminal_image (0.3.0)
       fastimage
-    thor (1.2.1)
+    thor (1.2.2)
     unicode-display_width (2.4.2)
 
 PLATFORMS
