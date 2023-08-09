@@ -1,12 +1,11 @@
 # Irasutoya::Cli
 
 [![Gem Version](https://badge.fury.io/rb/irasutoya-cli.svg)](https://badge.fury.io/rb/irasutoya-cli)
-[![Circle CI](https://circleci.com/gh/unhappychoice/irasutoya-cli.svg?style=shield)](https://circleci.com/gh/unhappychoice/irasutoya-cli)
-[![Code Climate](https://codeclimate.com/github/unhappychoice/irasutoya-cli/badges/gpa.svg)](https://codeclimate.com/github/unhappychoice/irasutoya-cli)
-[![codecov](https://codecov.io/gh/unhappychoice/irasutoya-cli/branch/master/graph/badge.svg)](https://codecov.io/gh/unhappychoice/irasutoya-cli)
-[![Libraries.io dependency status for GitHub repo](https://img.shields.io/librariesio/github/unhappychoice/irasutoya-cli.svg)](https://libraries.io/github/unhappychoice/irasutoya-cli)
+[![Code Climate](https://codeclimate.com/github/irasutoya-tools/irasutoya-cli/badges/gpa.svg)](https://codeclimate.com/github/irasutoya-tools/irasutoya-cli)
+[![codecov](https://codecov.io/gh/irasutoya-tools/irasutoya-cli/branch/master/graph/badge.svg)](https://codecov.io/gh/irasutoya-tools/irasutoya-cli)
+[![Libraries.io dependency status for GitHub repo](https://img.shields.io/librariesio/github/irasutoya-tools/irasutoya-cli.svg)](https://libraries.io/github/irasutoya-tools/irasutoya-cli)
 ![](http://ruby-gem-downloads-badge.herokuapp.com/irasutoya-cli?type=total)
-![GitHub](https://img.shields.io/github/license/unhappychoice/irasutoya-cli.svg)
+![GitHub](https://img.shields.io/github/license/irasutoya-tools/irasutoya-cli.svg)
 
 ![](./images/example.png)
 
@@ -30,7 +29,7 @@ Commands:
 
 ## Contributing
 
-Bug reports and pull requests are welcome on GitHub at https://github.com/unhappychoice/irasutoya-cli. This project is intended to be a safe, welcoming space for collaboration, and contributors are expected to adhere to the [Contributor Covenant](http://contributor-covenant.org) code of conduct.
+Bug reports and pull requests are welcome on GitHub at https://github.com/irasutoya-tools/irasutoya-cli. This project is intended to be a safe, welcoming space for collaboration, and contributors are expected to adhere to the [Contributor Covenant](http://contributor-covenant.org) code of conduct.
 
 ## License
 
