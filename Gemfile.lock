@@ -100,7 +100,7 @@ GEM
     terminal_image (0.3.0)
       fastimage
     thor (1.2.2)
-    unicode-display_width (2.4.2)
+    unicode-display_width (2.5.0)
 
 PLATFORMS
   ruby
