@@ -32,6 +32,7 @@ Gem::Specification.new do |spec|
   spec.add_dependency 'terminal_image'
   spec.add_dependency 'thor'
 
+  spec.add_development_dependency 'base64'
   spec.add_development_dependency 'bundler', '~> 2.0'
   spec.add_development_dependency 'codecov'
   spec.add_development_dependency 'guard'
