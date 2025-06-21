@@ -18,7 +18,7 @@ module Irasutoya
       desc 'search {query}', 'Gives you 3 irasutoya images by given query'
       def search(query)
         Irasutoya::Irasuto
-          .search(query: query)
+          .search(query:)
           .take(3)
           .flat_map(&:fetch_irasuto)
           .compact
