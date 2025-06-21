@@ -7,16 +7,16 @@ require 'irasutoya/cli/version'
 Gem::Specification.new do |spec|
   spec.name                              = 'irasutoya-cli'
   spec.version                           = Irasutoya::Cli::VERSION
-  spec.required_ruby_version             = '>= 2.5'
+  spec.required_ruby_version             = '>= 3.1'
   spec.authors                           = ['Yuji Ueki']
   spec.email                             = ['unhappychoice@gmail.com']
   spec.summary                           = 'CLI tool for irasutoya'
   spec.description                       = 'CLI tool for irasutoya'
-  spec.homepage                          = 'https://github.com/unhappychoice/irasutoya-cli'
+  spec.homepage                          = 'https://github.com/irasutoya-tools/irasutoya-cli'
   spec.license                           = 'MIT'
   spec.metadata['homepage_uri']          = spec.homepage
-  spec.metadata['source_code_uri']       = 'https://github.com/unhappychoice/irasutoya-cli'
-  spec.metadata['changelog_uri']         = 'https://github.com/unhappychoice/irasutoya-cli'
+  spec.metadata['source_code_uri']       = 'https://github.com/irasutoya-tools/irasutoya-cli'
+  spec.metadata['changelog_uri']         = 'https://github.com/irasutoya-tools/irasutoya-cli'
   spec.metadata['rubygems_mfa_required'] = 'true'
 
   # Specify which files should be added to the gem when it is released.
