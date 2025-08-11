@@ -18,7 +18,8 @@ GEM
     docile (1.4.1)
     fastimage (2.4.0)
     ffi (1.17.2)
-    formatador (1.1.1)
+    formatador (1.2.0)
+      reline
     guard (2.19.1)
       formatador (>= 0.2.4)
       listen (>= 2.7, < 4.0)
@@ -38,6 +39,7 @@ GEM
     guard-rubocop (1.5.0)
       guard (~> 2.0)
       rubocop (< 2.0)
+    io-console (0.8.1)
     irasutoya (2.0.2)
       nokogiri
     json (2.13.2)
@@ -73,6 +75,8 @@ GEM
     rb-inotify (0.11.1)
       ffi (~> 1.0)
     regexp_parser (2.11.0)
+    reline (0.6.2)
+      io-console (~> 0.5)
     rspec (3.13.1)
       rspec-core (~> 3.13.0)
       rspec-expectations (~> 3.13.0)
