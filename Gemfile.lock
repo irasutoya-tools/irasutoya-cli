@@ -53,7 +53,7 @@ GEM
     method_source (1.1.0)
     mini_portile2 (2.8.9)
     nenv (0.3.0)
-    nokogiri (1.18.9)
+    nokogiri (1.18.10)
       mini_portile2 (~> 2.8.2)
       racc (~> 1.4)
     notiffany (0.1.3)
