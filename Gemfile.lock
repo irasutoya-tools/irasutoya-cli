@@ -18,7 +18,7 @@ GEM
     docile (1.4.1)
     fastimage (2.4.0)
     ffi (1.17.2)
-    formatador (1.2.1)
+    formatador (1.2.2)
       reline
     guard (2.19.1)
       formatador (>= 0.2.4)
