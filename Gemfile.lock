@@ -39,7 +39,7 @@ GEM
     guard-rubocop (1.5.0)
       guard (~> 2.0)
       rubocop (< 2.0)
-    io-console (0.8.1)
+    io-console (0.8.2)
     irasutoya (2.0.2)
       nokogiri
     json (2.18.0)
