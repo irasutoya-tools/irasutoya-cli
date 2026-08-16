@@ -106,7 +106,7 @@ GEM
       prism (~> 1.7)
     ruby-progressbar (1.13.0)
     shellany (0.0.1)
-    simplecov (1.0.3)
+    simplecov (1.1.0)
     terminal_image (1.0.0)
       base64 (~> 0.3)
       fastimage
