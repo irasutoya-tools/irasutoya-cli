@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require 'open-uri'
 require 'irasutoya/cli/version'
 require 'irasutoya'
 require 'terminal_image'
@@ -20,12 +21,18 @@ module Irasutoya
         Irasutoya::Irasuto
           .search(query:)
           .take(3)
-          .flat_map(&:fetch_irasuto)
-          .compact
+          .filter_map(&method(:fetch_result))
           .each(&method(:display))
       end
 
       private
+
+      def fetch_result(link)
+        link.fetch_irasuto
+      rescue OpenURI::HTTPError => e
+        warn "warn: Could not fetch result page #{link.show_url}: #{e.message}"
+        nil
+      end
 
       def display(irasuto)
         say "Page URL:    #{irasuto.url}"
