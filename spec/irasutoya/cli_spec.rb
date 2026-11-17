@@ -1,6 +1,5 @@
 # frozen_string_literal: true
 
-require 'stringio'
 require 'tmpdir'
 
 RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
@@ -29,7 +28,8 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
     end
 
     let(:image_data) { "\x89PNG\r\n\x1a\n".b }
-    let(:download) { instance_double(URI::HTTP) }
+    let(:http) { instance_double(Net::HTTP) }
+    let(:response) { Net::HTTPOK.new('1.1', '200', 'OK') }
 
     around do |example|
       original_tmpdir = ENV['TMPDIR']
@@ -42,8 +42,10 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
     end
 
     before do
-      irasuto.image_urls.each { |url| allow(URI).to receive(:parse).with(url).and_return(download) }
-      allow(download).to receive(:open) { |&block| block.call(StringIO.new(image_data)) }
+      stub_const('Irasutoya::Cli::Runner::MAX_PREVIEW_BYTES', image_data.bytesize)
+      allow(Net::HTTP).to receive(:start).with('example.com', 80, use_ssl: false, max_retries: 0).and_yield(http)
+      allow(http).to receive(:request_get).and_yield(response)
+      allow(response).to receive(:read_body).and_yield(image_data.byteslice(0, 4)).and_yield(image_data.byteslice(4..))
       allow(TerminalImage).to receive(:show)
     end
 
@@ -52,7 +54,7 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
         expect { subject }.to output(expected).to_stdout
       end
 
-      it 'renders each downloaded image and removes its temporary file' do
+      it 'renders each image at the byte limit and removes its temporary file' do
         expect(TerminalImage).to receive(:show).exactly(irasuto.image_urls.size).times do |file|
           expect(file.read).to eq(image_data)
         end
@@ -60,8 +62,36 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
         expect(Dir.children(ENV.fetch('TMPDIR'))).to be_empty
       end
 
+      it 'stops reading an oversized image without Content-Length and renders the next image' do
+        oversized = Net::HTTPOK.new('1.1', '200', 'OK')
+        allow(http).to receive(:request_get).with('/test.png').and_yield(oversized)
+        allow(oversized).to receive(:read_body) do |&read_chunk|
+          read_chunk.call(image_data)
+          read_chunk.call('x')
+          raise 'Download continued past the byte limit'
+        end
+
+        expect(TerminalImage).to receive(:show).once do |file|
+          expect(file.read).to eq(image_data)
+        end
+        warning = "warn: Image preview exceeds the #{image_data.bytesize}-byte limit\n"
+        expect { subject }.to output(expected + warning).to_stdout
+        expect(Dir.children(ENV.fetch('TMPDIR'))).to be_empty
+      end
+
+      it 'renders an image after a relative redirect without reading the redirect body' do
+        redirect = Net::HTTPFound.new('1.1', '302', 'Found')
+        redirect['location'] = '/redirected.png'
+        allow(http).to receive(:request_get).with('/test.png').and_yield(redirect)
+        expect(redirect).not_to receive(:read_body)
+        expect(http).to receive(:request_get).with('/redirected.png').and_yield(response)
+        expect(TerminalImage).to receive(:show).twice
+
+        expect { subject }.to output(expected).to_stdout
+      end
+
       it 'removes the temporary file when downloading fails' do
-        allow(download).to receive(:open).and_raise(IOError, 'download failed')
+        allow(http).to receive(:request_get).and_raise(IOError, 'download failed')
 
         expect { subject }.to raise_error(IOError, 'download failed')
         expect(Dir.children(ENV.fetch('TMPDIR'))).to be_empty
