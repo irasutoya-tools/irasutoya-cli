@@ -2,6 +2,8 @@
 
 require 'irasutoya/cli/version'
 require 'irasutoya'
+require 'open-uri'
+require 'tempfile'
 require 'terminal_image'
 require 'thor'
 
@@ -34,10 +36,18 @@ module Irasutoya
         irasuto.image_urls.each { |image_url| say "Image URL:   #{image_url}" }
         return unless $stdout.tty?
 
-        irasuto.image_urls.each(&TerminalImage.method(:show_url))
+        irasuto.image_urls.each(&method(:show_preview))
       rescue TerminalImage::UnsupportedTerminal
         say 'warn: This terminal is not able to show images inline', :yellow
         say 'warn: Please use iTerm2 or terminal installed libsixel.', :yellow
+      end
+
+      def show_preview(image_url)
+        Tempfile.create(binmode: true) do |file|
+          URI.parse(image_url).open { |source| IO.copy_stream(source, file) }
+          file.rewind
+          TerminalImage.show(file)
+        end
       end
     end
   end
