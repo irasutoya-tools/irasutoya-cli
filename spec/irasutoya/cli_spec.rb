@@ -32,8 +32,10 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
         expect { subject }.to output(expected).to_stdout
       end
 
-      it 'should show image' do
-        expect(TerminalImage).to receive(:show_url).with(irasuto.image_url)
+      it 'shows every image on the page' do
+        irasuto.image_urls.each do |image_url|
+          expect(TerminalImage).to receive(:show_url).with(image_url)
+        end
         subject
       end
 
