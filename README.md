@@ -15,7 +15,7 @@
 $ gem install irasutoya-cli
 ```
 
-To see preview of image, you need to use [iTerm2](https://iterm2.com/index.html) or terminals with [libsixel](https://github.com/saitoha/libsixel) installed.
+Image previews use [iTerm2](https://iterm2.com/index.html) when detected, or Sixel when the [libsixel](https://github.com/saitoha/libsixel) `img2sixel` command is on `PATH`. Otherwise, previews fall back to ANSI rendering and display in terminals that support 24-bit (true-color) ANSI colors. The ANSI fallback renders PNGs directly and requires ImageMagick (`magick` or `convert` on `PATH`) to convert other supported image formats to PNG.
 
 ## Usage
 
