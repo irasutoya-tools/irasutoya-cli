@@ -5,6 +5,15 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
     expect(Irasutoya::Cli::VERSION).not_to be nil
   end
 
+  describe '.start' do
+    it 'exits with a failure status when search has no query' do
+      expect do
+        expect { Irasutoya::Cli::Runner.start(['search']) }
+          .to raise_error(SystemExit) { |error| expect(error.success?).to be false }
+      end.to output(/search/).to_stderr
+    end
+  end
+
   describe 'commands' do # rubocop:disable Metrics/BlockLength
     let(:irasuto) do
       Irasutoya::Irasuto.new(
