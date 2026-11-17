@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require 'open-uri'
 require 'irasutoya/cli/version'
 require 'irasutoya'
 require 'terminal_image'
@@ -32,10 +33,13 @@ module Irasutoya
         say "Title:       #{irasuto.title}"
         say "Description: #{irasuto.description}"
         irasuto.image_urls.each { |image_url| say "Image URL:   #{image_url}" }
-        irasuto.image_urls.each(&TerminalImage.method(:show_url))
-      rescue TerminalImage::UnsupportedTerminal
-        say 'warn: This terminal is not able to show images inline', :yellow
-        say 'warn: Please use iTerm2 or terminal installed libsixel.', :yellow
+        irasuto.image_urls.each(&method(:show_preview))
+      end
+
+      def show_preview(image_url)
+        TerminalImage.show_url(image_url)
+      rescue OpenURI::HTTPError, TerminalImage::UnsupportedTerminal => e
+        say "warn: Could not preview #{image_url}: #{e.message}", :yellow
       end
     end
   end

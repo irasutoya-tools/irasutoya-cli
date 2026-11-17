@@ -36,23 +36,6 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
         expect(TerminalImage).to receive(:show_url).with(irasuto.image_url)
         subject
       end
-
-      context 'when terminal image raises error' do
-        before do
-          allow(TerminalImage).to receive(:show_url).and_raise(TerminalImage::UnsupportedTerminal)
-        end
-
-        let(:warnings) do
-          <<~WARNING
-            warn: This terminal is not able to show images inline
-            warn: Please use iTerm2 or terminal installed libsixel.
-          WARNING
-        end
-
-        it 'should say' do
-          expect { subject }.to output(expected + warnings).to_stdout
-        end
-      end
     end
 
     describe '#random' do
@@ -74,6 +57,29 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
       end
 
       it_behaves_like 'a command displays irasuto'
+
+      {
+        'the download returns HTTP 404' => OpenURI::HTTPError.new('404 Not Found', nil),
+        'the image format is unsupported' => TerminalImage::UnsupportedFormat.new('Unsupported image format')
+      }.each do |failure, error|
+        it "continues rendering previews and displaying results when #{failure}" do
+          failed_url, next_url = irasuto.image_urls
+          next_result = Irasutoya::Irasuto.new(
+            url: 'http://example.com/next',
+            title: 'Next result',
+            description: 'Another illustration',
+            image_urls: ['http://example.com/next.png']
+          )
+          next_link = instance_double(Irasutoya::IrasutoLink, fetch_irasuto: next_result)
+          allow(Irasutoya::Irasuto).to receive(:search).and_return([irasuto_link, next_link])
+          allow(TerminalImage).to receive(:show_url).with(failed_url).and_raise(error)
+
+          warning = "warn: Could not preview #{failed_url}: #{error.message}\n"
+          expect { subject }.to output(/#{Regexp.escape(expected + warning)}.*Title:       Next result/m).to_stdout
+          expect(TerminalImage).to have_received(:show_url).with(next_url).ordered
+          expect(TerminalImage).to have_received(:show_url).with(next_result.image_url).ordered
+        end
+      end
     end
   end
 end
