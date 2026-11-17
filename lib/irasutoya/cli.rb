@@ -30,14 +30,22 @@ module Irasutoya
       private
 
       def display(irasuto)
-        say "Page URL:    #{irasuto.url}"
-        say "Title:       #{irasuto.title}"
-        say "Description: #{irasuto.description}"
-        irasuto.image_urls.each { |image_url| say "Image URL:   #{image_url}" }
+        display_metadata(irasuto)
         irasuto.image_urls.each(&method(:show_preview))
       rescue TerminalImage::UnsupportedTerminal
         say 'warn: This terminal is not able to show images inline', :yellow
         say 'warn: Please use iTerm2 or terminal installed libsixel.', :yellow
+      end
+
+      def display_metadata(irasuto)
+        say "Page URL:    #{escape_controls(irasuto.url)}"
+        say "Title:       #{escape_controls(irasuto.title)}"
+        say "Description: #{escape_controls(irasuto.description)}"
+        irasuto.image_urls.each { |image_url| say "Image URL:   #{escape_controls(image_url)}" }
+      end
+
+      def escape_controls(value)
+        value.to_s.gsub(/\p{Cc}/) { |character| format('\\x%02X', character.ord) }
       end
 
       def show_preview(image_url)

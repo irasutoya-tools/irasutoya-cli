@@ -52,6 +52,29 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
         expect { subject }.to output(expected).to_stdout
       end
 
+      context 'with terminal control characters in metadata' do
+        let(:irasuto) do
+          Irasutoya::Irasuto.new(
+            url: "http://example.com/\a",
+            title: "猫のイラスト\e[2J",
+            description: "かわいい猫\r\n説明\t\u009B31m",
+            image_urls: ["http://example.com/test.png\x7f"]
+          )
+        end
+
+        it 'escapes metadata controls while preserving Japanese text and renderer output' do
+          allow(TerminalImage).to receive(:show) { print "\e[0m" }
+          expected_output = <<~'EXPECTED'
+            Page URL:    http://example.com/\x07
+            Title:       猫のイラスト\x1B[2J
+            Description: かわいい猫\x0D\x0A説明\x09\x9B31m
+            Image URL:   http://example.com/test.png\x7F
+          EXPECTED
+
+          expect { subject }.to output(expected_output + "\e[0m").to_stdout
+        end
+      end
+
       it 'renders each downloaded image and removes its temporary file' do
         expect(TerminalImage).to receive(:show).exactly(irasuto.image_urls.size).times do |file|
           expect(file.read).to eq(image_data)
