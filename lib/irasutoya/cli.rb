@@ -1,8 +1,6 @@
 # frozen_string_literal: true
 
 require 'irasutoya/cli/version'
-require 'irasutoya'
-require 'terminal_image'
 require 'thor'
 
 module Irasutoya
@@ -12,11 +10,13 @@ module Irasutoya
     class Runner < Thor
       desc 'random', 'Gives you random irasutoya image'
       def random
+        require 'irasutoya'
         display(Irasutoya::Irasuto.random)
       end
 
       desc 'search {query}', 'Gives you 3 irasutoya images by given query'
       def search(query)
+        require 'irasutoya'
         Irasutoya::Irasuto
           .search(query:)
           .take(3)
@@ -32,6 +32,7 @@ module Irasutoya
         say "Title:       #{irasuto.title}"
         say "Description: #{irasuto.description}"
         irasuto.image_urls.each { |image_url| say "Image URL:   #{image_url}" }
+        require 'terminal_image'
         irasuto.image_urls.each(&TerminalImage.method(:show_url))
       rescue TerminalImage::UnsupportedTerminal
         say 'warn: This terminal is not able to show images inline', :yellow

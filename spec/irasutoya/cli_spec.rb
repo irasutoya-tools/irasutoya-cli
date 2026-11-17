@@ -1,5 +1,8 @@
 # frozen_string_literal: true
 
+require 'irasutoya'
+require 'terminal_image'
+
 RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
   it 'has a version number' do
     expect(Irasutoya::Cli::VERSION).not_to be nil
@@ -33,7 +36,9 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
       end
 
       it 'should show image' do
-        expect(TerminalImage).to receive(:show_url).with(irasuto.image_url)
+        irasuto.image_urls.each do |image_url|
+          expect(TerminalImage).to receive(:show_url).with(image_url)
+        end
         subject
       end
 
@@ -69,7 +74,7 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
       end
 
       before do
-        allow(Irasutoya::Irasuto).to receive(:search) { [irasuto_link] }
+        allow(Irasutoya::Irasuto).to receive(:search).with(query: 'query') { [irasuto_link] }
         allow(irasuto_link).to receive(:fetch_irasuto) { irasuto }
       end
 
