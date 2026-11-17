@@ -17,6 +17,16 @@ $ gem install irasutoya-cli
 
 To see preview of image, you need to use [iTerm2](https://iterm2.com/index.html) or terminals with [libsixel](https://github.com/saitoha/libsixel) installed.
 
+## Quick Start
+
+After installing the gem, run a search with a single query argument:
+
+```sh
+$ irasutoya search '猫'
+```
+
+For each result, the CLI prints the illustration's page URL, title, description, and image URLs. Open a page URL in your browser to view the illustration on Irasutoya.
+
 ## Usage
 
 ```sh
