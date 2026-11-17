@@ -15,7 +15,7 @@ module Irasutoya
         display(Irasutoya::Irasuto.random)
       end
 
-      desc 'search {query}', 'Gives you 3 irasutoya images by given query'
+      desc 'search {query}', 'Shows images from up to three result pages. Each page can contain multiple images.'
       def search(query)
         Irasutoya::Irasuto
           .search(query:)
