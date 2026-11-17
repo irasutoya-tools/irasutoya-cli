@@ -34,7 +34,6 @@ Gem::Specification.new do |spec|
 
   spec.add_development_dependency 'base64'
   spec.add_development_dependency 'bundler', '~> 2.0'
-  spec.add_development_dependency 'codecov'
   spec.add_development_dependency 'guard'
   spec.add_development_dependency 'guard-rspec'
   spec.add_development_dependency 'guard-rubocop'
@@ -42,4 +41,5 @@ Gem::Specification.new do |spec|
   spec.add_development_dependency 'rspec', '~> 3.0'
   spec.add_development_dependency 'rubocop'
   spec.add_development_dependency 'simplecov'
+  spec.add_development_dependency 'simplecov-cobertura', '~> 4.0'
 end
