@@ -19,13 +19,12 @@ Gem::Specification.new do |spec|
   spec.metadata['changelog_uri']         = 'https://github.com/irasutoya-tools/irasutoya-cli'
   spec.metadata['rubygems_mfa_required'] = 'true'
 
-  # Specify which files should be added to the gem when it is released.
-  # The `git ls-files -z` loads the files in the RubyGem that have been added into git.
-  spec.files = Dir.chdir(File.expand_path(__dir__)) do
-    `git ls-files -z`.split("\x0").reject { |f| f.match(%r{^(test|spec|features)/}) }
+  spec.bindir = 'exe'
+  spec.files = Dir.chdir(__dir__) do
+    Dir.glob(['lib/**/*', "#{spec.bindir}/*"]).select { |path| File.file?(path) } +
+      %w[README.md LICENSE.txt CODE_OF_CONDUCT.md images/example.png]
   end
-  spec.bindir        = 'exe'
-  spec.executables   = spec.files.grep(%r{^exe/}) { |f| File.basename(f) }
+  spec.executables   = spec.files.grep(%r{\A#{spec.bindir}/}) { |path| File.basename(path) }
   spec.require_paths = ['lib']
 
   spec.add_dependency 'irasutoya', '~> 2.0'
