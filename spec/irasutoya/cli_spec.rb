@@ -62,7 +62,9 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
     end
 
     describe '#search' do
-      subject { Irasutoya::Cli::Runner.new.search('query') }
+      subject { runner.search('query') }
+
+      let(:runner) { Irasutoya::Cli::Runner.new }
 
       let(:irasuto_link) do
         Irasutoya::IrasutoLink.new(title: 'title', show_url: 'http://example.com')
@@ -74,6 +76,27 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
       end
 
       it_behaves_like 'a command displays irasuto'
+
+      it 'displays each of the first three results before fetching the next page' do
+        links = Array.new(4) { instance_double(Irasutoya::IrasutoLink) }
+        allow(Irasutoya::Irasuto).to receive(:search).with(query: 'query').and_return(links)
+
+        links.take(3).each do |link|
+          result = instance_double(Irasutoya::Irasuto)
+          expect(link).to receive(:fetch_irasuto).ordered.and_return(result)
+          expect(runner).to receive(:display).with(result).ordered
+        end
+
+        expect(links.last).not_to receive(:fetch_irasuto)
+        subject
+      end
+
+      it 'skips a missing detail result and continues to the next link' do
+        missing_link = instance_double(Irasutoya::IrasutoLink, fetch_irasuto: nil)
+        allow(Irasutoya::Irasuto).to receive(:search).and_return([missing_link, irasuto_link])
+
+        expect { subject }.to output(expected).to_stdout
+      end
     end
   end
 end

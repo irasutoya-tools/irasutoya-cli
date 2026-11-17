@@ -20,6 +20,7 @@ module Irasutoya
         Irasutoya::Irasuto
           .search(query:)
           .take(3)
+          .lazy
           .flat_map(&:fetch_irasuto)
           .compact
           .each(&method(:display))
