@@ -28,13 +28,20 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
     before { allow(TerminalImage).to receive(:show_url) }
 
     shared_examples_for 'a command displays irasuto' do
-      it 'should say image information' do
+      it 'prints only image information when stdout is redirected' do
+        expect(TerminalImage).not_to receive(:show_url)
         expect { subject }.to output(expected).to_stdout
       end
 
-      it 'should show image' do
-        expect(TerminalImage).to receive(:show_url).with(irasuto.image_url)
-        subject
+      it 'renders each image when stdout is a terminal' do
+        irasuto.image_urls.each do |image_url|
+          expect(TerminalImage).to receive(:show_url).with(image_url)
+        end
+
+        expect do
+          allow($stdout).to receive(:tty?).and_return(true)
+          subject
+        end.to output(expected).to_stdout
       end
 
       context 'when terminal image raises error' do
@@ -49,8 +56,11 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
           WARNING
         end
 
-        it 'should say' do
-          expect { subject }.to output(expected + warnings).to_stdout
+        it 'prints warnings after the image information' do
+          expect do
+            allow($stdout).to receive(:tty?).and_return(true)
+            subject
+          end.to output(expected + warnings).to_stdout
         end
       end
     end

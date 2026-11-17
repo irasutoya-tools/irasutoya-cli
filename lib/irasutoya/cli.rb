@@ -32,6 +32,8 @@ module Irasutoya
         say "Title:       #{irasuto.title}"
         say "Description: #{irasuto.description}"
         irasuto.image_urls.each { |image_url| say "Image URL:   #{image_url}" }
+        return unless $stdout.tty?
+
         irasuto.image_urls.each(&TerminalImage.method(:show_url))
       rescue TerminalImage::UnsupportedTerminal
         say 'warn: This terminal is not able to show images inline', :yellow
