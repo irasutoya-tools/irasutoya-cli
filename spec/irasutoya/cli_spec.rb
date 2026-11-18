@@ -115,6 +115,29 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
       end
 
       it_behaves_like 'a command displays irasuto'
+
+      context 'when a result page returns 404' do
+        let(:missing_url) { 'http://example.com/missing' }
+        let(:last_url) { 'http://example.com/last' }
+
+        before do
+          missing_link = Irasutoya::IrasutoLink.new(title: 'missing', show_url: missing_url)
+          last_link = Irasutoya::IrasutoLink.new(title: 'last', show_url: last_url)
+          last_result = Irasutoya::Irasuto.new(
+            url: last_url, title: 'last', description: 'description', image_urls: irasuto.image_urls
+          )
+          allow(Irasutoya::Irasuto).to receive(:search).and_return([irasuto_link, missing_link, last_link])
+          allow(missing_link).to receive(:fetch_irasuto)
+            .and_raise(OpenURI::HTTPError.new('404 Not Found', nil))
+          allow(last_link).to receive(:fetch_irasuto).and_return(last_result)
+        end
+
+        it 'displays successful results in order and reports the failed URL once' do
+          last_output = expected.sub(irasuto.url, last_url).sub('Title:       title', 'Title:       last')
+          expect { subject }.to output(expected + last_output).to_stdout
+            .and output("warn: Could not fetch result page #{missing_url}: 404 Not Found\n").to_stderr
+        end
+      end
     end
   end
 end
