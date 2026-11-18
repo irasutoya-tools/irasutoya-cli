@@ -11,11 +11,23 @@
 
 ## Installation
 
+Ruby 3.3 or newer is required.
+
 ```sh
 $ gem install irasutoya-cli
 ```
 
-To see preview of image, you need to use [iTerm2](https://iterm2.com/index.html) or terminals with [libsixel](https://github.com/saitoha/libsixel) installed.
+Image previews use [iTerm2](https://iterm2.com/index.html) when detected, or Sixel when the [libsixel](https://github.com/saitoha/libsixel) `img2sixel` command is on `PATH`. Otherwise, previews fall back to ANSI rendering and display in terminals that support 24-bit (true-color) ANSI colors. The ANSI fallback renders PNGs directly and requires ImageMagick (`magick` or `convert` on `PATH`) to convert other supported image formats to PNG.
+
+## Quick Start
+
+After installing the gem, run a search with a single query argument:
+
+```sh
+$ irasutoya search '猫'
+```
+
+For each result, the CLI prints the illustration's page URL, title, description, and image URLs. Open a page URL in your browser to view the illustration on Irasutoya.
 
 ## Usage
 
@@ -24,7 +36,7 @@ $ irasutoya
 Commands:
   irasutoya help [COMMAND]  # Describe available commands or one specific command
   irasutoya random          # Gives you random irasutoya image
-  irasutoya search {query}  # Gives you irasutoya 3 images by given query
+  irasutoya search {query}  # Shows images from up to three result pages. Each page can contain multiple images.
 ```
 
 ## Contributing

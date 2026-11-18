@@ -2,13 +2,11 @@
 
 if ENV['COVERAGE']
   require 'simplecov'
-  SimpleCov.add_filter ['spec']
-  SimpleCov.start
-end
+  require 'simplecov-cobertura'
 
-if ENV['CODECOV_TOKEN']
-  require 'codecov'
-  SimpleCov.formatter = SimpleCov::Formatter::Codecov
+  SimpleCov.formatter = SimpleCov::Formatter::CoberturaFormatter
+  SimpleCov.skip ['spec']
+  SimpleCov.start
 end
 
 require 'bundler/setup'
