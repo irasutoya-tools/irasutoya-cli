@@ -87,6 +87,46 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
         end.to output(expected).to_stdout
       end
 
+      context 'with terminal control characters in metadata' do
+        let(:irasuto) do
+          Irasutoya::Irasuto.new(
+            url: "http://example.com/\a",
+            title: "猫のイラスト\e[2J",
+            description: "かわいい猫\r\n説明\t\u009B31m\x7f",
+            image_urls: ['http://example.com/test.png']
+          )
+        end
+
+        let(:escaped_metadata) do
+          <<~'EXPECTED'
+            Page URL:    http://example.com/\x07
+            Title:       猫のイラスト\x1B[2J
+            Description: かわいい猫\x0D\x0A説明\x09\x9B31m\x7F
+            Image URL:   http://example.com/test.png
+          EXPECTED
+        end
+
+        it 'escapes controls in image URLs when stdout is redirected' do
+          allow(irasuto).to receive(:image_urls).and_return(["http://example.com/test.png\x7f"])
+          expect(Net::HTTP).not_to receive(:start)
+          expected_output = escaped_metadata.sub("test.png\n", "test.png\\x7F\n")
+
+          expect do
+            allow($stdout).to receive(:tty?).and_return(false)
+            subject
+          end.to output(expected_output).to_stdout
+        end
+
+        it 'escapes metadata controls while preserving Japanese text and renderer output' do
+          allow(TerminalImage).to receive(:show) { print "\e[0m" }
+
+          expect do
+            allow($stdout).to receive(:tty?).and_return(true)
+            subject
+          end.to output(escaped_metadata + "\e[0m").to_stdout
+        end
+      end
+
       it 'renders each image at the byte limit and removes its temporary file' do
         rendered_images = []
         allow(TerminalImage).to receive(:show) { |file| rendered_images << file.read }

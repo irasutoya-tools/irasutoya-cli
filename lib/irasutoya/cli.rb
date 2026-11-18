@@ -46,13 +46,21 @@ module Irasutoya
       def display(irasuto)
         require 'terminal_image'
 
-        say "Page URL:    #{irasuto.url}"
-        say "Title:       #{irasuto.title}"
-        say "Description: #{irasuto.description}"
-        irasuto.image_urls.each { |image_url| say "Image URL:   #{image_url}" }
+        display_metadata(irasuto)
         return unless $stdout.tty?
 
         irasuto.image_urls.each(&method(:show_preview))
+      end
+
+      def display_metadata(irasuto)
+        say "Page URL:    #{escape_controls(irasuto.url)}"
+        say "Title:       #{escape_controls(irasuto.title)}"
+        say "Description: #{escape_controls(irasuto.description)}"
+        irasuto.image_urls.each { |image_url| say "Image URL:   #{escape_controls(image_url)}" }
+      end
+
+      def escape_controls(value)
+        value.to_s.gsub(/\p{Cc}/) { |character| format('\\x%02X', character.ord) }
       end
 
       def show_preview(image_url)
