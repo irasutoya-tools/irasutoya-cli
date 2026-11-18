@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'stringio'
+require 'terminal_image'
 
 RSpec.describe 'ANSI image previews' do
   before do
