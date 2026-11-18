@@ -33,7 +33,7 @@ Gem::Specification.new do |spec|
   spec.add_dependency 'thor'
 
   spec.add_development_dependency 'base64'
-  spec.add_development_dependency 'bundler', '~> 2.0'
+  spec.add_development_dependency 'bundler', '~> 4.1'
   spec.add_development_dependency 'guard'
   spec.add_development_dependency 'guard-rspec'
   spec.add_development_dependency 'guard-rubocop'
