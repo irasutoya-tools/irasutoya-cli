@@ -6,6 +6,7 @@ if ENV['COVERAGE']
 
   SimpleCov.formatter = SimpleCov::Formatter::CoberturaFormatter
   SimpleCov.skip ['spec']
+  SimpleCov.minimum_coverage line: 100
   SimpleCov.start
 end
 
