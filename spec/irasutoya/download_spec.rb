@@ -61,7 +61,18 @@ RSpec.describe 'irasutoya download' do
     expect(Dir.children(directory)).to eq(['cat.png'])
   end
 
-  def run_download
-    Irasutoya::Cli::Runner.start(['download', page_url, '--output', directory])
+  ['https://example.com/cat.html', 'https://www.irasutoya.com/cat photo.html'].each do |url|
+    it "rejects #{url.inspect} before fetching the page or creating the output directory" do
+      expect(Irasutoya::IrasutoLink).not_to receive(:new)
+
+      expect { run_download(url) }.to output(
+        /\AProvide an Irasutoya illustration page URL printed by search or random\.\n/
+      ).to_stderr
+      expect(File.exist?(directory)).to be(false)
+    end
+  end
+
+  def run_download(url = page_url)
+    Irasutoya::Cli::Runner.start(['download', url, '--output', directory])
   end
 end
