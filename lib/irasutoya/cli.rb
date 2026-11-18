@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'open-uri'
+require 'tempfile'
 require 'irasutoya/cli/version'
 require 'thor'
 
@@ -52,14 +53,10 @@ module Irasutoya
         return unless $stdout.tty?
 
         irasuto.image_urls.each(&method(:show_preview))
-      rescue TerminalImage::UnsupportedTerminal
-        say 'warn: This terminal is not able to show images inline', :yellow
-        say 'warn: Please use iTerm2 or terminal installed libsixel.', :yellow
       end
 
       def show_preview(image_url)
         require 'net/http'
-        require 'tempfile'
 
         Tempfile.create(binmode: true) do |file|
           download_preview(URI.parse(image_url), file)
@@ -68,6 +65,8 @@ module Irasutoya
         end
       rescue PreviewTooLarge
         say "warn: Image preview exceeds the #{MAX_PREVIEW_BYTES}-byte limit", :yellow
+      rescue Net::HTTPExceptions, TerminalImage::UnsupportedFormat, TerminalImage::UnsupportedTerminal => e
+        say "warn: Could not preview #{image_url}: #{e.message}", :yellow
       end
 
       def download_preview(uri, file, redirects_left = MAX_PREVIEW_REDIRECTS)
