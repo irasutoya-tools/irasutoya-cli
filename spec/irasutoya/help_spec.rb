@@ -24,6 +24,7 @@ RSpec.describe 'CLI help' do
     stdout, stderr, status = Open3.capture3(RbConfig.ruby, '-Ilib', '-e', run_help, '--', 'help', 'search', chdir: root)
 
     expect(status.success?).to be(true), stderr
-    expect(stdout).to include('Usage:', 'irasutoya search {query}', 'Gives you 3 irasutoya images by given query')
+    expect(stdout).to include('Usage:', 'irasutoya search {query}',
+                              'Shows images from up to three result pages. Each page can contain multiple images.')
   end
 end
