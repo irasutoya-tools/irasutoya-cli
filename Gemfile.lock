@@ -18,6 +18,7 @@ GEM
     ffi (1.17.4)
     formatador (1.2.3)
       reline
+    gem-release (2.2.4)
     guard (2.20.2)
       formatador (>= 0.2.4)
       listen (>= 2.7, < 4.0)
@@ -124,6 +125,7 @@ PLATFORMS
 DEPENDENCIES
   base64
   bundler (~> 2.0)
+  gem-release
   guard
   guard-rspec
   guard-rubocop

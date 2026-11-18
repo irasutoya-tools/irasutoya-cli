@@ -14,7 +14,13 @@ jobs:
       - name: Install bundler
         run: gem install bundler
       - name: Install dependencies
+        env:
+          BUNDLE_FROZEN: 'true'
         run: bundle install --jobs 4
+      - name: Check locked release helper
+        env:
+          BUNDLE_FROZEN: 'true'
+        run: bundle exec gem bump --help
       - name: Run lint
         run: bundle exec rubocop lib
   test:
