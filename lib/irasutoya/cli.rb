@@ -2,8 +2,6 @@
 
 require 'open-uri'
 require 'irasutoya/cli/version'
-require 'irasutoya'
-require 'terminal_image'
 require 'thor'
 
 module Irasutoya
@@ -13,32 +11,51 @@ module Irasutoya
     class Runner < Thor
       desc 'random', 'Gives you random irasutoya image'
       def random
+        require 'irasutoya'
         display(Irasutoya::Irasuto.random)
       end
 
-      desc 'search {query}', 'Gives you 3 irasutoya images by given query'
+      desc 'search {query}', 'Shows images from up to three result pages. Each page can contain multiple images.'
       def search(query)
+        require 'irasutoya'
         Irasutoya::Irasuto
           .search(query:)
           .take(3)
-          .flat_map(&:fetch_irasuto)
-          .compact
+          .filter_map(&method(:fetch_result))
           .each(&method(:display))
       end
 
       private
 
+      def fetch_result(link)
+        link.fetch_irasuto
+      rescue OpenURI::HTTPError => e
+        warn "warn: Could not fetch result page #{link.show_url}: #{e.message}"
+        nil
+      end
+
       def display(irasuto)
+        require 'terminal_image'
+
         say "Page URL:    #{irasuto.url}"
         say "Title:       #{irasuto.title}"
         say "Description: #{irasuto.description}"
         irasuto.image_urls.each { |image_url| say "Image URL:   #{image_url}" }
+        return unless $stdout.tty?
+
         irasuto.image_urls.each(&method(:show_preview))
       end
 
       def show_preview(image_url)
-        TerminalImage.show_url(image_url)
-      rescue OpenURI::HTTPError, TerminalImage::UnsupportedTerminal => e
+        require 'open-uri'
+        require 'tempfile'
+
+        Tempfile.create(binmode: true) do |file|
+          URI.parse(image_url).open { |source| IO.copy_stream(source, file) }
+          file.rewind
+          TerminalImage.show(file)
+        end
+      rescue OpenURI::HTTPError, TerminalImage::UnsupportedFormat, TerminalImage::UnsupportedTerminal => e
         say "warn: Could not preview #{image_url}: #{e.message}", :yellow
       end
     end
