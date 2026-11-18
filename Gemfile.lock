@@ -37,7 +37,7 @@ GEM
       guard (~> 2.0)
       rubocop (< 2.0)
     io-console (0.9.5)
-    irasutoya (2.0.3)
+    irasutoya (2.0.4)
       nokogiri
     json (3.1.0)
     language_server-protocol (3.17.0.6)
