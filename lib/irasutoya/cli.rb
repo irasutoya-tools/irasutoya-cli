@@ -9,6 +9,10 @@ module Irasutoya
     class Error < StandardError; end
 
     class Runner < Thor
+      MAX_PREVIEW_BYTES = 10 * 1024 * 1024
+      MAX_PREVIEW_REDIRECTS = 5
+      class PreviewTooLarge < Error; end
+
       def self.exit_on_failure?
         true
       end
@@ -54,13 +58,48 @@ module Irasutoya
       end
 
       def show_preview(image_url)
-        require 'open-uri'
+        require 'net/http'
         require 'tempfile'
 
         Tempfile.create(binmode: true) do |file|
-          URI.parse(image_url).open { |source| IO.copy_stream(source, file) }
+          download_preview(URI.parse(image_url), file)
           file.rewind
           TerminalImage.show(file)
+        end
+      rescue PreviewTooLarge
+        say "warn: Image preview exceeds the #{MAX_PREVIEW_BYTES}-byte limit", :yellow
+      end
+
+      def download_preview(uri, file, redirects_left = MAX_PREVIEW_REDIRECTS)
+        raise Error, 'Image preview URL must use HTTP or HTTPS' unless uri.is_a?(URI::HTTP)
+
+        redirect = stream_preview(uri, file)
+        return unless redirect
+        raise Error, 'Too many image preview redirects' if redirects_left.zero?
+
+        location = uri + redirect
+        raise Error, 'Image preview redirect must use HTTPS' if uri.scheme == 'https' && location.scheme != 'https'
+
+        download_preview(location, file, redirects_left - 1)
+      end
+
+      def stream_preview(uri, file)
+        Net::HTTP.start(uri.hostname, uri.port, use_ssl: uri.scheme == 'https', max_retries: 0) do |http|
+          http.request_get(uri.request_uri) do |response|
+            return response.fetch('location') if %w[301 302 303 307 308].include?(response.code)
+
+            response.value
+            write_preview(response, file)
+          end
+        end
+        nil
+      end
+
+      def write_preview(response, file)
+        response.read_body do |chunk|
+          raise PreviewTooLarge if file.pos + chunk.bytesize > MAX_PREVIEW_BYTES
+
+          file.write(chunk)
         end
       end
     end
