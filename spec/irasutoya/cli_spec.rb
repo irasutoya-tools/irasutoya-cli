@@ -49,8 +49,7 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
     end
 
     let(:runner) { Irasutoya::Cli::Runner.new }
-    let(:image_data) { "\x89PNG\r\n\x1a\n".b }
-    let(:download) { instance_double(URI::HTTP) }
+    let(:downloads) { irasuto.image_urls.to_h { |url| [url, instance_double(URI::HTTP)] } }
 
     around do |example|
       original_tmpdir = ENV['TMPDIR']
@@ -63,14 +62,16 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
     end
 
     before do
-      irasuto.image_urls.each { |url| allow(URI).to receive(:parse).with(url).and_return(download) }
-      allow(download).to receive(:open) { |&block| block.call(StringIO.new(image_data)) }
+      downloads.each do |url, download|
+        allow(URI).to receive(:parse).with(url).and_return(download)
+        allow(download).to receive(:open) { |&block| block.call(StringIO.new(url)) }
+      end
       allow(TerminalImage).to receive(:show)
     end
 
     shared_examples_for 'a command displays irasuto' do
       it 'prints metadata without downloading or rendering when stdout is redirected' do
-        expect(download).not_to receive(:open)
+        downloads.each_value { |download| expect(download).not_to receive(:open) }
         expect(TerminalImage).not_to receive(:show)
 
         expect do
@@ -80,18 +81,18 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
       end
 
       it 'renders each downloaded image and removes its temporary file' do
-        expect(TerminalImage).to receive(:show).exactly(irasuto.image_urls.size).times do |file|
-          expect(file.read).to eq(image_data)
-        end
+        rendered_images = []
+        allow(TerminalImage).to receive(:show) { |file| rendered_images << file.read }
         expect do
           allow($stdout).to receive(:tty?).and_return(true)
           subject
         end.to output(expected).to_stdout
+        expect(rendered_images).to eq(irasuto.image_urls)
         expect(Dir.children(ENV.fetch('TMPDIR'))).to be_empty
       end
 
       it 'removes the temporary file when downloading fails' do
-        allow(download).to receive(:open).and_raise(IOError, 'download failed')
+        allow(downloads.fetch(irasuto.image_urls.first)).to receive(:open).and_raise(IOError, 'download failed')
 
         allow($stdout).to receive(:tty?).and_return(true)
         expect { subject }.to raise_error(IOError, 'download failed')
