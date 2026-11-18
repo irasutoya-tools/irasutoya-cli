@@ -13,6 +13,8 @@ jobs:
           ruby-version: .ruby-version
       - name: Install dependencies
         run: BUNDLE_FROZEN=true bundle install --jobs 4
+      - name: Check locked release helper
+        run: BUNDLE_FROZEN=true bundle exec gem bump --help
       - name: Run lint
         run: bundle exec rubocop lib
   test:

@@ -25,17 +25,18 @@ jobs:
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
         with:
-          bundler-cache: true
           ruby-version: .ruby-version
       - name: Setup Git
         run: |
           git config --global user.email "unhappychoice@gmail.com"
           git config --global user.name "Yuji Ueki"
-      - name: Install gem-release
-        run: gem install gem-release
+      - name: Install locked dependencies
+        env:
+          BUNDLE_FROZEN: 'true'
+        run: bundle install
       - name: Bump version
         run: |
-          gem bump --version ${{inputs.version}} --message ':tada: Bump %{name} to %{version}'
-          bundle config set frozen false && bundle install
+          BUNDLE_FROZEN=true bundle exec gem bump --version ${{inputs.version}} --message ':tada: Bump %{name} to %{version}'
+          bundle install
           git add . && git commit --amend --no-edit
       - uses: rubygems/release-gem@v1
