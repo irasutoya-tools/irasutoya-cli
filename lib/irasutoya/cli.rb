@@ -9,6 +9,10 @@ module Irasutoya
     class Error < StandardError; end
 
     class Runner < Thor
+      def self.exit_on_failure?
+        true
+      end
+
       desc 'random', 'Gives you random irasutoya image'
       def random
         require 'irasutoya'

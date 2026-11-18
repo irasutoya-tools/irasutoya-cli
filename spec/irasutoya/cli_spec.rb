@@ -11,6 +11,15 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
     expect(Irasutoya::Cli::VERSION).not_to be nil
   end
 
+  describe '.start' do
+    it 'exits with a failure status when search has no query' do
+      expect do
+        expect { Irasutoya::Cli::Runner.start(['search']) }
+          .to raise_error(SystemExit) { |error| expect(error.success?).to be false }
+      end.to output(/search/).to_stderr
+    end
+  end
+
   it 'describes the search page limit and multiple images in help and the README' do
     description = 'Shows images from up to three result pages. Each page can contain multiple images.'
     readme = File.read(File.expand_path('../../README.md', __dir__))
