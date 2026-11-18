@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require 'open-uri'
 require 'irasutoya/cli/version'
 require 'thor'
 
@@ -14,18 +15,24 @@ module Irasutoya
         display(Irasutoya::Irasuto.random)
       end
 
-      desc 'search {query}', 'Gives you 3 irasutoya images by given query'
+      desc 'search {query}', 'Shows images from up to three result pages. Each page can contain multiple images.'
       def search(query)
         require 'irasutoya'
         Irasutoya::Irasuto
           .search(query:)
           .take(3)
-          .flat_map(&:fetch_irasuto)
-          .compact
+          .filter_map(&method(:fetch_result))
           .each(&method(:display))
       end
 
       private
+
+      def fetch_result(link)
+        link.fetch_irasuto
+      rescue OpenURI::HTTPError => e
+        warn "warn: Could not fetch result page #{link.show_url}: #{e.message}"
+        nil
+      end
 
       def display(irasuto)
         require 'terminal_image'
@@ -34,6 +41,8 @@ module Irasutoya
         say "Title:       #{irasuto.title}"
         say "Description: #{irasuto.description}"
         irasuto.image_urls.each { |image_url| say "Image URL:   #{image_url}" }
+        return unless $stdout.tty?
+
         irasuto.image_urls.each(&method(:show_preview))
       rescue TerminalImage::UnsupportedTerminal
         say 'warn: This terminal is not able to show images inline', :yellow

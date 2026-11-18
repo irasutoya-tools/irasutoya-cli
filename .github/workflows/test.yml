@@ -11,16 +11,10 @@ jobs:
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: .ruby-version
-      - name: Install bundler
-        run: gem install bundler
       - name: Install dependencies
-        env:
-          BUNDLE_FROZEN: 'true'
-        run: bundle install --jobs 4
+        run: BUNDLE_FROZEN=true bundle install --jobs 4
       - name: Check locked release helper
-        env:
-          BUNDLE_FROZEN: 'true'
-        run: bundle exec gem bump --help
+        run: BUNDLE_FROZEN=true bundle exec gem bump --help
       - name: Run lint
         run: bundle exec rubocop lib
   test:
@@ -37,11 +31,8 @@ jobs:
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: ${{ matrix.ruby }}
-          rubygems: latest
-      - name: Install bundler
-        run: gem install bundler
       - name: Install dependencies
-        run: bundle install --jobs 4
+        run: BUNDLE_FROZEN=true bundle install --jobs 4
       - name: Run test
         env:
           RAILS_ENV: test
