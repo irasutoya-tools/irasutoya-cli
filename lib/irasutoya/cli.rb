@@ -1,10 +1,6 @@
 # frozen_string_literal: true
 
 require 'irasutoya/cli/version'
-require 'irasutoya'
-require 'open-uri'
-require 'tempfile'
-require 'terminal_image'
 require 'thor'
 
 module Irasutoya
@@ -14,11 +10,13 @@ module Irasutoya
     class Runner < Thor
       desc 'random', 'Gives you random irasutoya image'
       def random
+        require 'irasutoya'
         display(Irasutoya::Irasuto.random)
       end
 
       desc 'search {query}', 'Gives you 3 irasutoya images by given query'
       def search(query)
+        require 'irasutoya'
         Irasutoya::Irasuto
           .search(query:)
           .take(3)
@@ -30,6 +28,8 @@ module Irasutoya
       private
 
       def display(irasuto)
+        require 'terminal_image'
+
         say "Page URL:    #{irasuto.url}"
         say "Title:       #{irasuto.title}"
         say "Description: #{irasuto.description}"
@@ -41,6 +41,9 @@ module Irasutoya
       end
 
       def show_preview(image_url)
+        require 'open-uri'
+        require 'tempfile'
+
         Tempfile.create(binmode: true) do |file|
           URI.parse(image_url).open { |source| IO.copy_stream(source, file) }
           file.rewind

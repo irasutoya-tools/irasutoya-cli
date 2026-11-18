@@ -1,6 +1,9 @@
 # frozen_string_literal: true
 
+require 'irasutoya'
+require 'open-uri'
 require 'stringio'
+require 'terminal_image'
 require 'tmpdir'
 
 RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
