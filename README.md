@@ -11,6 +11,8 @@
 
 ## Installation
 
+Ruby 3.3 or newer is required.
+
 ```sh
 $ gem install irasutoya-cli
 ```
