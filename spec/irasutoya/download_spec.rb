@@ -65,7 +65,9 @@ RSpec.describe 'irasutoya download' do
     it "rejects #{url.inspect} before fetching the page or creating the output directory" do
       expect(Irasutoya::IrasutoLink).not_to receive(:new)
 
-      expect { run_download(url) }.to output(
+      expect do
+        expect { run_download(url) }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      end.to output(
         /\AProvide an Irasutoya illustration page URL printed by search or random\.\n/
       ).to_stderr
       expect(File.exist?(directory)).to be(false)
