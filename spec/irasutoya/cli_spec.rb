@@ -38,7 +38,7 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
       EXPECTED
     end
 
-    let(:runner) { Irasutoya::Cli::Runner.new }
+    let(:runner) { Irasutoya::Cli::Runner.new([], {}, shell: Thor::Shell::Basic.new) }
     let(:image_data) { "\x89PNG\r\n\x1a\n".b }
     let(:http) { instance_double(Net::HTTP) }
     let(:response) { Net::HTTPOK.new('1.1', '200', 'OK') }
@@ -134,8 +134,6 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
       end
 
       context 'when terminal image raises error' do
-        let(:runner) { Irasutoya::Cli::Runner.new([], {}, shell: Thor::Shell::Basic.new) }
-
         before do
           allow(TerminalImage).to receive(:show).and_raise(TerminalImage::UnsupportedTerminal)
         end
