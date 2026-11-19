@@ -30,7 +30,7 @@ RSpec.describe 'irasutoya download' do
     image_urls.zip(image_data).each do |url, data|
       uri = URI.parse(url)
       allow(URI).to receive(:parse).with(url).and_return(uri)
-      allow(uri).to receive(:open).and_yield(StringIO.new(data))
+      stub_image_response(uri, data, url == image_urls.first ? { 'content-length' => data.bytesize.to_s } : {})
     end
   end
 
@@ -71,6 +71,17 @@ RSpec.describe 'irasutoya download' do
     expect(Dir.children(directory)).to be_empty
   end
 
+  it 'reports a truncated image URL and only announces and keeps the completed image' do
+    stub_image_response(URI.parse(image_urls.last), 'short', { 'content-length' => '12' })
+
+    expect do
+      expect do
+        expect { run_download }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      end.to output("Incomplete image download from #{image_urls.last}: expected 12 bytes, received 5\n").to_stderr
+    end.to output("Saved: #{File.join(directory, 'cat.png')}\n").to_stdout
+    expect(Dir.children(directory)).to eq(['cat.png'])
+  end
+
   ['https://example.com/cat.html', 'https://www.irasutoya.com/cat photo.html'].each do |url|
     it "rejects #{url.inspect} before fetching the page or creating the output directory" do
       expect(Irasutoya::IrasutoLink).not_to receive(:new)
@@ -86,5 +97,12 @@ RSpec.describe 'irasutoya download' do
 
   def run_download(url = page_url)
     Irasutoya::Cli::Runner.start(['download', url, '--output', directory])
+  end
+
+  def stub_image_response(uri, data, headers)
+    source = StringIO.new(data)
+    OpenURI::Meta.init(source)
+    headers.each { |name, value| source.meta_add_field(name, value) }
+    allow(uri).to receive(:open).and_yield(source)
   end
 end
