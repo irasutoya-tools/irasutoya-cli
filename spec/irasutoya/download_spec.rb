@@ -61,6 +61,16 @@ RSpec.describe 'irasutoya download' do
     expect(Dir.children(directory)).to eq(['cat.png'])
   end
 
+  it 'cannot save an image when the destination filesystem rejects hard links' do
+    allow(File).to receive(:link).with(anything, File.join(directory, 'cat.png')) do |source, _destination|
+      expect(File.binread(source)).to eq(image_data.first)
+      raise Errno::EOPNOTSUPP
+    end
+
+    expect { run_download }.to raise_error(Errno::EOPNOTSUPP)
+    expect(Dir.children(directory)).to be_empty
+  end
+
   ['https://example.com/cat.html', 'https://www.irasutoya.com/cat photo.html'].each do |url|
     it "rejects #{url.inspect} before fetching the page or creating the output directory" do
       expect(Irasutoya::IrasutoLink).not_to receive(:new)
