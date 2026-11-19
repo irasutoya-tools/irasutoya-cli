@@ -35,6 +35,8 @@ $ irasutoya download 'PAGE_URL' --output ./images
 
 The command creates the destination directory if needed, saves every image on the page, and prints each saved path. If a filename is already taken, the command adds a numeric suffix before the extension. Downloads work in terminals without inline preview support.
 
+Each image download is limited to 10 MiB (10,485,760 bytes). If an image exceeds the limit, the command stops and discards that download. Images already saved are kept.
+
 ## Usage
 
 ```sh

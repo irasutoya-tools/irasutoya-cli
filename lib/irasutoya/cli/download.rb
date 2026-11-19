@@ -2,13 +2,16 @@
 
 require 'fileutils'
 require 'irasutoya'
-require 'open-uri'
+require 'net/http'
 require 'tempfile'
 require 'thor'
 
 module Irasutoya
   module Cli
     class Download
+      MAX_IMAGE_BYTES = 10 * 1024 * 1024
+      MAX_REDIRECTS = 5
+
       def initialize(page_url, directory)
         @page_url = page_url
         @directory = directory
@@ -41,9 +44,47 @@ module Irasutoya
         filename = File.basename(uri.path)
         filename = 'image' if ['', '.', '..', '/'].include?(filename)
         Tempfile.create('.irasutoya-', @directory, binmode: true) do |file|
-          uri.open { |source| IO.copy_stream(source, file) }
+          download_image(uri, file)
           file.flush
           link_image(file.path, filename)
+        end
+      end
+
+      def download_image(uri, file, redirects_left = MAX_REDIRECTS)
+        raise Thor::Error, 'Image download URL must use HTTP or HTTPS' unless uri.is_a?(URI::HTTP)
+
+        redirect = stream_image(uri, file)
+        return unless redirect
+        raise Thor::Error, 'Too many image download redirects' if redirects_left.zero?
+
+        location = uri + redirect
+        if uri.scheme == 'https' && location.scheme != 'https'
+          raise Thor::Error, 'Image download redirect must use HTTPS'
+        end
+
+        download_image(location, file, redirects_left - 1)
+      end
+
+      def stream_image(uri, file)
+        options = { use_ssl: uri.scheme == 'https', max_retries: 0, ignore_eof: false }
+        Net::HTTP.start(uri.hostname, uri.port, **options) do |http|
+          http.request_get(uri.request_uri) do |response|
+            return response.fetch('location') if %w[301 302 303 307 308].include?(response.code)
+
+            response.value
+            write_image(response, file)
+          end
+        end
+        nil
+      end
+
+      def write_image(response, file)
+        response.read_body do |chunk|
+          if file.pos + chunk.bytesize > MAX_IMAGE_BYTES
+            raise Thor::Error, "Image download exceeds the #{MAX_IMAGE_BYTES}-byte limit"
+          end
+
+          file.write(chunk)
         end
       end
 
