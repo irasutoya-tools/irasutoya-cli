@@ -46,6 +46,8 @@ Commands:
   irasutoya search {query}  # Shows images from up to three result pages. Each page can contain multiple images.
 ```
 
+See the [CLI reference](https://github.com/irasutoya-tools/irasutoya-cli/blob/master/docs/usage.md) for command arguments, output, and preview behavior.
+
 ## Contributing
 
 Bug reports and pull requests are welcome on GitHub at https://github.com/irasutoya-tools/irasutoya-cli. This project is intended to be a safe, welcoming space for collaboration, and contributors are expected to adhere to the [Contributor Covenant](http://contributor-covenant.org) code of conduct.
