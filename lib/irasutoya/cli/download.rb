@@ -48,16 +48,32 @@ module Irasutoya
       end
 
       def link_image(source, filename)
+        path = File.join(@directory, filename)
+        File.link(source, path)
+        path
+      rescue Errno::EEXIST
+        link_with_suffix(source, filename)
+      end
+
+      def link_with_suffix(source, filename)
         extension = File.extname(filename)
         stem = File.basename(filename, extension)
-        0.step do |index|
-          name = index.zero? ? filename : "#{stem}-#{index}#{extension}"
-          path = File.join(@directory, name)
-          File.link(source, path)
-          return path
+        1.step do |index|
+          return link_candidate(source, stem, "-#{index}#{extension}")
         rescue Errno::EEXIST
           next
         end
+      end
+
+      def link_candidate(source, stem, ending)
+        path = File.join(@directory, "#{stem}#{ending}")
+        File.link(source, path)
+        path
+      rescue Errno::ENAMETOOLONG
+        raise if stem.empty?
+
+        stem = stem[0...-1]
+        retry
       end
     end
   end
