@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 require 'irasutoya'
-require 'net/http'
 require 'open-uri'
 require 'terminal_image'
 require 'tmpdir'
@@ -50,14 +49,7 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
 
     let(:runner) { Irasutoya::Cli::Runner.new([], {}, shell: Thor::Shell::Basic.new) }
     let(:image_data) { %w[first other] }
-    let(:http) { instance_double(Net::HTTP) }
-    let(:responses) do
-      irasuto.image_urls.zip(image_data).to_h do |url, data|
-        response = Net::HTTPOK.new('1.1', '200', 'OK')
-        allow(response).to receive(:read_body).and_yield(data.byteslice(0, 2)).and_yield(data.byteslice(2..))
-        [URI.parse(url).request_uri, response]
-      end
-    end
+    let(:transfer) { Irasutoya::Cli::ImageTransfer }
 
     around do |example|
       original_tmpdir = ENV['TMPDIR']
@@ -71,14 +63,16 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
 
     before do
       stub_const('Irasutoya::Cli::Runner::MAX_PREVIEW_BYTES', image_data.first.bytesize)
-      allow(Net::HTTP).to receive(:start).with('example.com', 80, use_ssl: false, max_retries: 0).and_yield(http)
-      responses.each { |path, response| allow(http).to receive(:request_get).with(path).and_yield(response) }
+      irasuto.image_urls.zip(image_data).each do |url, data|
+        allow(transfer).to receive(:fetch).with(URI.parse(url)).and_yield(data.byteslice(0, 2))
+          .and_yield(data.byteslice(2..))
+      end
       allow(TerminalImage).to receive(:show)
     end
 
     shared_examples_for 'a command displays irasuto' do
       it 'prints metadata without downloading or rendering when stdout is redirected' do
-        expect(Net::HTTP).not_to receive(:start)
+        expect(transfer).not_to receive(:fetch)
         expect(TerminalImage).not_to receive(:show)
 
         expect do
@@ -108,7 +102,7 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
 
         it 'escapes controls in image URLs when stdout is redirected' do
           allow(irasuto).to receive(:image_urls).and_return(["http://example.com/test.png\x7f"])
-          expect(Net::HTTP).not_to receive(:start)
+          expect(transfer).not_to receive(:fetch)
           expected_output = escaped_metadata.sub("test.png\n", "test.png\\x7F\n")
 
           expect do
@@ -139,9 +133,7 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
       end
 
       it 'stops reading an oversized image without Content-Length and renders the next image' do
-        oversized = Net::HTTPOK.new('1.1', '200', 'OK')
-        allow(http).to receive(:request_get).with('/test.png').and_yield(oversized)
-        allow(oversized).to receive(:read_body) do |&read_chunk|
+        allow(transfer).to receive(:fetch).with(URI.parse(irasuto.image_urls.first)) do |&read_chunk|
           read_chunk.call(image_data.first)
           read_chunk.call('x')
           raise 'Download continued past the byte limit'
@@ -158,22 +150,9 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
         expect(Dir.children(ENV.fetch('TMPDIR'))).to be_empty
       end
 
-      it 'renders an image after a relative redirect without reading the redirect body' do
-        redirect = Net::HTTPFound.new('1.1', '302', 'Found')
-        redirect['location'] = '/redirected.png'
-        allow(http).to receive(:request_get).with('/test.png').and_yield(redirect)
-        expect(redirect).not_to receive(:read_body)
-        expect(http).to receive(:request_get).with('/redirected.png').and_yield(responses.fetch('/test.png'))
-        expect(TerminalImage).to receive(:show).twice
-
-        expect do
-          allow($stdout).to receive(:tty?).and_return(true)
-          subject
-        end.to output(expected).to_stdout
-      end
-
       it 'removes the temporary file when downloading fails' do
-        allow(http).to receive(:request_get).with('/test.png').and_raise(IOError, 'download failed')
+        allow(transfer).to receive(:fetch).with(URI.parse(irasuto.image_urls.first))
+          .and_raise(IOError, 'download failed')
 
         allow($stdout).to receive(:tty?).and_return(true)
         expect { subject }.to raise_error(IOError, 'download failed')
@@ -222,9 +201,7 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
         before do
           next_link = instance_double(Irasutoya::IrasutoLink, fetch_irasuto: next_result)
           allow(Irasutoya::Irasuto).to receive(:search).and_return([irasuto_link, next_link])
-          next_response = Net::HTTPOK.new('1.1', '200', 'OK')
-          allow(next_response).to receive(:read_body).and_yield('next')
-          allow(http).to receive(:request_get).with('/next.png').and_yield(next_response)
+          allow(transfer).to receive(:fetch).with(URI.parse(next_result.image_urls.first)).and_yield('next')
         end
 
         shared_examples 'a recoverable preview failure' do
@@ -247,8 +224,8 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
           let(:message) { '404 "Not Found"' }
 
           before do
-            missing = Net::HTTPNotFound.new('1.1', '404', 'Not Found')
-            allow(http).to receive(:request_get).with('/test.png').and_yield(missing)
+            allow(transfer).to receive(:fetch).with(URI.parse(irasuto.image_urls.first))
+              .and_raise(transfer::ResponseError, message)
           end
 
           include_examples 'a recoverable preview failure'

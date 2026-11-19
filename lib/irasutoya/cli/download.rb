@@ -2,7 +2,7 @@
 
 require 'fileutils'
 require 'irasutoya'
-require 'open-uri'
+require 'irasutoya/cli/image_transfer'
 require 'tempfile'
 require 'thor'
 
@@ -41,9 +41,17 @@ module Irasutoya
         filename = File.basename(uri.path)
         filename = 'image' if ['', '.', '..', '/'].include?(filename)
         Tempfile.create('.irasutoya-', @directory, binmode: true) do |file|
-          uri.open { |source| IO.copy_stream(source, file) }
+          copy_image(uri, file)
           file.flush
           link_image(file.path, filename)
+        end
+      end
+
+      def copy_image(uri, destination)
+        Tempfile.create(binmode: true) do |source|
+          ImageTransfer.fetch(uri) { |chunk| source.write(chunk) }
+          source.rewind
+          IO.copy_stream(source, destination)
         end
       end
 

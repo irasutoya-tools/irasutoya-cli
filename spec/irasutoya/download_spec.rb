@@ -3,7 +3,6 @@
 require 'fileutils'
 require 'irasutoya'
 require 'nokogiri'
-require 'stringio'
 require 'terminal_image'
 require 'tmpdir'
 
@@ -11,6 +10,7 @@ RSpec.describe 'irasutoya download' do
   let(:page_url) { 'https://www.irasutoya.com/2026/01/cat.html' }
   let(:image_urls) { %w[https://example.com/cat.png https://example.com/other/cat.png?size=large] }
   let(:image_data) { ["\x89PNG".b, "\xFF\xFE".b] }
+  let(:transfer) { Irasutoya::Cli::ImageTransfer }
   let(:directory) { File.join(@workspace, 'nested', 'images') }
 
   around do |example|
@@ -26,11 +26,8 @@ RSpec.describe 'irasutoya download' do
     link = Irasutoya::IrasutoLink.new(title: nil, show_url: page_url)
     allow(Irasutoya::IrasutoLink).to receive(:new).with(title: nil, show_url: page_url).and_return(link)
     allow(link).to receive(:fetch_page_and_parse).with(page_url).and_return(page)
-    allow(URI).to receive(:parse).and_call_original
     image_urls.zip(image_data).each do |url, data|
-      uri = URI.parse(url)
-      allow(URI).to receive(:parse).with(url).and_return(uri)
-      allow(uri).to receive(:open).and_yield(StringIO.new(data))
+      allow(transfer).to receive(:fetch).with(URI.parse(url)).and_yield(data)
     end
   end
 
@@ -55,7 +52,11 @@ RSpec.describe 'irasutoya download' do
   end
 
   it 'keeps completed images and removes the temporary file when a download fails' do
-    allow(URI.parse(image_urls.last)).to receive(:open).and_raise(IOError, 'download failed')
+    allow(transfer).to receive(:fetch).with(URI.parse(image_urls.last)) do |&read_chunk|
+      read_chunk.call('partial')
+      expect(Dir.children(directory).grep(/\.png$/)).to eq(['cat.png'])
+      raise IOError, 'download failed'
+    end
 
     expect { run_download }.to raise_error(IOError, 'download failed')
     expect(Dir.children(directory)).to eq(['cat.png'])
