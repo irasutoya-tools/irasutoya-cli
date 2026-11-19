@@ -48,11 +48,9 @@ module Irasutoya
       end
 
       def copy_image(uri, destination)
-        Tempfile.create(binmode: true) do |source|
-          ImageTransfer.fetch(uri) { |chunk| source.write(chunk) }
-          source.rewind
-          IO.copy_stream(source, destination)
-        end
+        ImageTransfer.fetch(uri) { |chunk| destination.write(chunk) }
+      rescue ImageTransfer::IncompleteBodyError => e
+        raise Thor::Error, "Incomplete image download from #{uri}: #{e.message}"
       end
 
       def link_image(source, filename)

@@ -28,6 +28,7 @@ module Irasutoya
         Irasutoya::Irasuto
           .search(query:)
           .take(3)
+          .lazy
           .filter_map(&method(:fetch_result))
           .each(&method(:display))
       end

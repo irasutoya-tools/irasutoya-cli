@@ -62,6 +62,26 @@ RSpec.describe 'irasutoya download' do
     expect(Dir.children(directory)).to eq(['cat.png'])
   end
 
+  it 'reports a truncated image URL and only announces and keeps the completed image' do
+    uri = URI.parse(image_urls.last)
+    allow(transfer).to receive(:fetch).with(uri).and_call_original
+    http = instance_double(Net::HTTP)
+    allow(Net::HTTP).to receive(:start).with(uri.hostname, uri.port, use_ssl: true, max_retries: 0).and_yield(http)
+    allow(http).to receive(:request_get).with(uri.request_uri, 'Accept-Encoding' => 'identity') do |&read_response|
+      wire = StringIO.new("HTTP/1.1 200 OK\r\nContent-Length: 12\r\n\r\nshort")
+      socket = Net::BufferedIO.new(wire)
+      response = Net::HTTPResponse.read_new(socket)
+      response.reading_body(socket, true) { read_response.call(response) }
+    end
+
+    expect do
+      expect do
+        expect { run_download }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      end.to output("Incomplete image download from #{image_urls.last}: expected 12 bytes, received 5\n").to_stderr
+    end.to output("Saved: #{File.join(directory, 'cat.png')}\n").to_stdout
+    expect(Dir.children(directory)).to eq(['cat.png'])
+  end
+
   ['https://example.com/cat.html', 'https://www.irasutoya.com/cat photo.html'].each do |url|
     it "rejects #{url.inspect} before fetching the page or creating the output directory" do
       expect(Irasutoya::IrasutoLink).not_to receive(:new)
