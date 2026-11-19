@@ -27,13 +27,20 @@ After installing the gem, run a search with a single query argument:
 $ irasutoya search '猫'
 ```
 
-For each result, the CLI prints the illustration's page URL, title, description, and image URLs. Open a page URL in your browser to view the illustration on Irasutoya.
+For each result, the CLI prints the illustration's page URL, title, description, and image URLs. Copy the `Page URL` from `search` or `random` and pass it to `download` with a destination directory:
+
+```sh
+$ irasutoya download 'PAGE_URL' --output ./images
+```
+
+The command creates the destination directory if needed, saves every image on the page, and prints each saved path. If a filename is already taken, the command adds a numeric suffix before the extension. Downloads work in terminals without inline preview support.
 
 ## Usage
 
 ```sh
 $ irasutoya
 Commands:
+  irasutoya download PAGE_URL --output DIR  # Saves all images from an illustration page
   irasutoya help [COMMAND]  # Describe available commands or one specific command
   irasutoya random          # Gives you random irasutoya image
   irasutoya search {query}  # Shows images from up to three result pages. Each page can contain multiple images.
