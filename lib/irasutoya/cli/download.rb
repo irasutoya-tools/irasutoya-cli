@@ -9,7 +9,7 @@ require 'thor'
 module Irasutoya
   module Cli
     class Download
-      MAX_REDIRECTS = 5
+      MAX_REDIRECTS = 64
 
       def initialize(page_url, directory)
         @page_url = page_url
@@ -65,14 +65,22 @@ module Irasutoya
       def request_image(uri, file)
         options = { use_ssl: uri.scheme == 'https', max_retries: 0, ignore_eof: false }
         Net::HTTP.start(uri.hostname, uri.port, **options) do |http|
-          http.request_get(uri.request_uri) do |response|
+          http.request_get(uri.request_uri, 'Accept-Encoding' => 'identity') do |response|
             return response.fetch('location') if %w[301 302 303 307 308].include?(response.code)
 
             response.value
-            response.read_body { |chunk| file.write(chunk) }
+            write_image(response, file, uri)
           end
         end
         nil
+      end
+
+      def write_image(response, file, uri)
+        response.read_body { |chunk| file.write(chunk) }
+      rescue EOFError => e
+        length = response.content_length unless response.chunked?
+        detail = length ? "expected #{length} bytes, received #{file.pos}" : e.message
+        raise Thor::Error, "Incomplete image download from #{uri}: #{detail}"
       end
 
       def link_image(source, filename)

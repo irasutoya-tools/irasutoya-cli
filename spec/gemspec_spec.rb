@@ -13,4 +13,8 @@ RSpec.describe 'Gem metadata' do
   it 'omits the changelog link' do
     expect(gemspec.metadata).not_to have_key('changelog_uri')
   end
+
+  it 'requires terminal_image 1.1.0 or later within the 1.x series at runtime' do
+    expect(gemspec.runtime_dependencies).to include(Gem::Dependency.new('terminal_image', '~> 1.1'))
+  end
 end
