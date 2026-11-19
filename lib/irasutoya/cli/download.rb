@@ -48,6 +48,8 @@ module Irasutoya
           file.flush
           link_image(file.path, filename)
         end
+      rescue EOFError => e
+        raise Thor::Error, "Incomplete image download from #{uri}: #{e.message}"
       end
 
       def download_image(uri, file, redirects_left = MAX_REDIRECTS)
@@ -68,7 +70,7 @@ module Irasutoya
       def stream_image(uri, file)
         options = { use_ssl: uri.scheme == 'https', max_retries: 0, ignore_eof: false }
         Net::HTTP.start(uri.hostname, uri.port, **options) do |http|
-          http.request_get(uri.request_uri) do |response|
+          http.request_get(uri.request_uri, 'Accept-Encoding' => 'identity') do |response|
             return response.fetch('location') if %w[301 302 303 307 308].include?(response.code)
 
             response.value
@@ -86,6 +88,14 @@ module Irasutoya
 
           file.write(chunk)
         end
+        verify_image_length(response, file.pos)
+      end
+
+      def verify_image_length(response, bytes)
+        length = response['content-length'] unless response.key?('transfer-encoding')
+        return unless length && bytes < length.to_i
+
+        raise EOFError, "expected #{length} bytes, received #{bytes}"
       end
 
       def link_image(source, filename)
