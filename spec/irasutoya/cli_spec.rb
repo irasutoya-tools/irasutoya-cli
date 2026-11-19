@@ -87,6 +87,46 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
         end.to output(expected).to_stdout
       end
 
+      context 'with terminal control characters in metadata' do
+        let(:irasuto) do
+          Irasutoya::Irasuto.new(
+            url: "http://example.com/\a",
+            title: "猫のイラスト\e[2J",
+            description: "かわいい猫\r\n説明\t\u009B31m\x7f",
+            image_urls: ['http://example.com/test.png']
+          )
+        end
+
+        let(:escaped_metadata) do
+          <<~'EXPECTED'
+            Page URL:    http://example.com/\x07
+            Title:       猫のイラスト\x1B[2J
+            Description: かわいい猫\x0D\x0A説明\x09\x9B31m\x7F
+            Image URL:   http://example.com/test.png
+          EXPECTED
+        end
+
+        it 'escapes controls in image URLs when stdout is redirected' do
+          allow(irasuto).to receive(:image_urls).and_return(["http://example.com/test.png\x7f"])
+          expect(Net::HTTP).not_to receive(:start)
+          expected_output = escaped_metadata.sub("test.png\n", "test.png\\x7F\n")
+
+          expect do
+            allow($stdout).to receive(:tty?).and_return(false)
+            subject
+          end.to output(expected_output).to_stdout
+        end
+
+        it 'escapes metadata controls while preserving Japanese text and renderer output' do
+          allow(TerminalImage).to receive(:show) { print "\e[0m" }
+
+          expect do
+            allow($stdout).to receive(:tty?).and_return(true)
+            subject
+          end.to output(escaped_metadata + "\e[0m").to_stdout
+        end
+      end
+
       it 'renders each image at the byte limit and removes its temporary file' do
         rendered_images = []
         allow(TerminalImage).to receive(:show) { |file| rendered_images << file.read }
@@ -147,27 +187,6 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
         expect { subject }.to raise_error(IOError, 'render failed')
         expect(Dir.children(ENV.fetch('TMPDIR'))).to be_empty
       end
-
-      context 'when terminal image raises error' do
-        before do
-          allow(TerminalImage).to receive(:show).and_raise(TerminalImage::UnsupportedTerminal)
-        end
-
-        let(:warnings) do
-          <<~WARNING
-            warn: This terminal is not able to show images inline
-            warn: Please use iTerm2 or terminal installed libsixel.
-          WARNING
-        end
-
-        it 'prints warnings after the image information and removes the temporary file' do
-          expect do
-            allow($stdout).to receive(:tty?).and_return(true)
-            subject
-          end.to output(expected + warnings).to_stdout
-          expect(Dir.children(ENV.fetch('TMPDIR'))).to be_empty
-        end
-      end
     end
 
     describe '#random' do
@@ -209,6 +228,62 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
         allow(Irasutoya::Irasuto).to receive(:search).and_return([missing_link, irasuto_link])
 
         expect { subject }.to output(expected).to_stdout
+      end
+
+      context 'when a preview fails' do # rubocop:disable Metrics/BlockLength
+        let(:next_result) do
+          Irasutoya::Irasuto.new(
+            url: 'http://example.com/next',
+            title: 'Next result',
+            description: 'Another illustration',
+            image_urls: ['http://example.com/next.png']
+          )
+        end
+
+        before do
+          next_link = instance_double(Irasutoya::IrasutoLink, fetch_irasuto: next_result)
+          allow(Irasutoya::Irasuto).to receive(:search).and_return([irasuto_link, next_link])
+          next_response = Net::HTTPOK.new('1.1', '200', 'OK')
+          allow(next_response).to receive(:read_body).and_yield('next')
+          allow(http).to receive(:request_get).with('/next.png').and_yield(next_response)
+        end
+
+        shared_examples 'a recoverable preview failure' do
+          it 'warns, renders later previews in order, and removes the temporary files' do
+            [image_data.last, 'next'].each do |data|
+              expect(TerminalImage).to receive(:show).ordered { |file| expect(file.read).to eq(data) }
+            end
+
+            warning = "warn: Could not preview #{irasuto.image_urls.first}: #{message}\n"
+            expect do
+              allow($stdout).to receive(:tty?).and_return(true)
+              subject
+            end.to output(/#{Regexp.escape(expected + warning)}.*Title:       Next result/m).to_stdout
+
+            expect(Dir.children(ENV.fetch('TMPDIR'))).to be_empty
+          end
+        end
+
+        context 'when an image download returns 404' do
+          let(:message) { '404 "Not Found"' }
+
+          before do
+            missing = Net::HTTPNotFound.new('1.1', '404', 'Not Found')
+            allow(http).to receive(:request_get).with('/test.png').and_yield(missing)
+          end
+
+          include_examples 'a recoverable preview failure'
+        end
+
+        [TerminalImage::UnsupportedFormat, TerminalImage::UnsupportedTerminal].each do |error_class|
+          context "when rendering raises #{error_class}" do
+            let(:message) { 'preview failed' }
+
+            before { expect(TerminalImage).to receive(:show).ordered.and_raise(error_class, message) }
+
+            include_examples 'a recoverable preview failure'
+          end
+        end
       end
 
       context 'when a result page returns 404' do

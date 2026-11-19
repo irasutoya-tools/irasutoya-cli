@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'open-uri'
+require 'tempfile'
 require 'irasutoya/cli/version'
 require 'thor'
 
@@ -34,6 +35,13 @@ module Irasutoya
           .each(&method(:display))
       end
 
+      desc 'download PAGE_URL', 'Saves all images from an illustration page'
+      method_option :output, type: :string, required: true, banner: 'DIR'
+      def download(page_url)
+        require 'irasutoya/cli/download'
+        Download.new(page_url, options[:output]).save { |path| say "Saved: #{path}" }
+      end
+
       private
 
       def fetch_result(link)
@@ -46,21 +54,25 @@ module Irasutoya
       def display(irasuto)
         require 'terminal_image'
 
-        say "Page URL:    #{irasuto.url}"
-        say "Title:       #{irasuto.title}"
-        say "Description: #{irasuto.description}"
-        irasuto.image_urls.each { |image_url| say "Image URL:   #{image_url}" }
+        display_metadata(irasuto)
         return unless $stdout.tty?
 
         irasuto.image_urls.each(&method(:show_preview))
-      rescue TerminalImage::UnsupportedTerminal
-        say 'warn: This terminal is not able to show images inline', :yellow
-        say 'warn: Please use iTerm2 or terminal installed libsixel.', :yellow
+      end
+
+      def display_metadata(irasuto)
+        say "Page URL:    #{escape_controls(irasuto.url)}"
+        say "Title:       #{escape_controls(irasuto.title)}"
+        say "Description: #{escape_controls(irasuto.description)}"
+        irasuto.image_urls.each { |image_url| say "Image URL:   #{escape_controls(image_url)}" }
+      end
+
+      def escape_controls(value)
+        value.to_s.gsub(/\p{Cc}/) { |character| format('\\x%02X', character.ord) }
       end
 
       def show_preview(image_url)
         require 'net/http'
-        require 'tempfile'
 
         Tempfile.create(binmode: true) do |file|
           download_preview(URI.parse(image_url), file)
@@ -69,6 +81,8 @@ module Irasutoya
         end
       rescue PreviewTooLarge
         say "warn: Image preview exceeds the #{MAX_PREVIEW_BYTES}-byte limit", :yellow
+      rescue Net::HTTPExceptions, TerminalImage::UnsupportedFormat, TerminalImage::UnsupportedTerminal => e
+        say "warn: Could not preview #{image_url}: #{e.message}", :yellow
       end
 
       def download_preview(uri, file, redirects_left = MAX_PREVIEW_REDIRECTS)
