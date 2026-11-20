@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'irasutoya'
+require 'irasutoya/cli/illustration'
 require 'net/http'
 require 'open-uri'
 require 'terminal_image'
@@ -71,7 +72,7 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
 
     before do
       stub_const('Irasutoya::Cli::Runner::MAX_PREVIEW_BYTES', image_data.first.bytesize)
-      allow(Net::HTTP).to receive(:start).with('example.com', 80, use_ssl: false, max_retries: 0).and_yield(http)
+      allow(Net::HTTP).to receive(:start).with('example.com', 443, use_ssl: true, max_retries: 0).and_yield(http)
       responses.each { |path, response| allow(http).to receive(:request_get).with(path).and_yield(response) }
       allow(TerminalImage).to receive(:show)
     end
@@ -172,6 +173,17 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
         end.to output(expected).to_stdout
       end
 
+      it 'rejects a redirect to HTTP before connecting to its destination' do
+        redirect = Net::HTTPFound.new('1.1', '302', 'Found')
+        redirect['location'] = 'http://other.example.com/image.png'
+        allow(http).to receive(:request_get).with('/test.png').and_yield(redirect)
+        expect(Net::HTTP).to receive(:start).with('example.com', 443, use_ssl: true, max_retries: 0).once
+        expect(TerminalImage).not_to receive(:show)
+
+        allow($stdout).to receive(:tty?).and_return(true)
+        expect { subject }.to raise_error(Irasutoya::Cli::Error, 'Image preview redirect must use HTTPS')
+      end
+
       it 'removes the temporary file when downloading fails' do
         allow(http).to receive(:request_get).with('/test.png').and_raise(IOError, 'download failed')
 
@@ -191,15 +203,29 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
 
     describe '#random' do
       subject { runner.random }
-      before { allow(Irasutoya::Irasuto).to receive(:random) { irasuto } }
+      before { allow(Irasutoya::Cli::Illustration).to receive(:random) { irasuto } }
       it_behaves_like 'a command displays irasuto'
+
+      it 'upgrades the page URL returned by the random feed before fetching it' do
+        illustration = Irasutoya::Cli::Illustration
+        allow(illustration).to receive(:random).and_call_original
+        allow(illustration).to receive(:random_url).and_return('http://www.irasutoya.com/cat.html')
+        uri = URI.parse('https://www.irasutoya.com/cat.html')
+        expect(OpenURI).to receive(:open_http).with(anything, uri, anything, anything) do |buffer|
+          buffer << '<div class="entry"><img src="http://example.com/cat.png"></div>'
+          buffer.io.rewind
+        end
+
+        allow($stdout).to receive(:tty?).and_return(false)
+        expect { subject }.to output(/Image URL:   http:\/\/example.com\/cat.png/).to_stdout
+      end
     end
 
     describe '#search' do
       subject { runner.search('query') }
 
       let(:irasuto_link) do
-        Irasutoya::IrasutoLink.new(title: 'title', show_url: 'http://example.com')
+        Irasutoya::IrasutoLink.new(title: 'title', show_url: 'https://example.com')
       end
 
       before do
@@ -209,8 +235,18 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
 
       it_behaves_like 'a command displays irasuto'
 
+      it 'upgrades a result page URL before fetching it' do
+        legacy_link = Irasutoya::IrasutoLink.new(title: 'title', show_url: 'http://example.com')
+        allow(Irasutoya::Irasuto).to receive(:search).and_return([legacy_link])
+        expect(legacy_link).not_to receive(:fetch_irasuto)
+        expect(Irasutoya::IrasutoLink).to receive(:new)
+          .with(title: 'title', show_url: 'https://example.com').and_return(irasuto_link)
+
+        expect { subject }.to output(expected).to_stdout
+      end
+
       it 'displays each of the first three results before fetching the next page' do
-        links = Array.new(4) { instance_double(Irasutoya::IrasutoLink) }
+        links = Array.new(4) { instance_double(Irasutoya::IrasutoLink, show_url: 'https://example.com') }
         allow(Irasutoya::Irasuto).to receive(:search).with(query: 'query').and_return(links)
 
         links.take(3).each do |link|
@@ -224,7 +260,7 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
       end
 
       it 'skips a missing detail result and continues to the next link' do
-        missing_link = instance_double(Irasutoya::IrasutoLink, fetch_irasuto: nil)
+        missing_link = instance_double(Irasutoya::IrasutoLink, show_url: 'https://example.com', fetch_irasuto: nil)
         allow(Irasutoya::Irasuto).to receive(:search).and_return([missing_link, irasuto_link])
 
         expect { subject }.to output(expected).to_stdout
@@ -241,7 +277,7 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
         end
 
         before do
-          next_link = instance_double(Irasutoya::IrasutoLink, fetch_irasuto: next_result)
+          next_link = instance_double(Irasutoya::IrasutoLink, show_url: 'https://example.com/next', fetch_irasuto: next_result)
           allow(Irasutoya::Irasuto).to receive(:search).and_return([irasuto_link, next_link])
           next_response = Net::HTTPOK.new('1.1', '200', 'OK')
           allow(next_response).to receive(:read_body).and_yield('next')
@@ -287,8 +323,8 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
       end
 
       context 'when a result page returns 404' do
-        let(:missing_url) { 'http://example.com/missing' }
-        let(:last_url) { 'http://example.com/last' }
+        let(:missing_url) { 'https://example.com/missing' }
+        let(:last_url) { 'https://example.com/last' }
 
         before do
           missing_link = Irasutoya::IrasutoLink.new(title: 'missing', show_url: missing_url)

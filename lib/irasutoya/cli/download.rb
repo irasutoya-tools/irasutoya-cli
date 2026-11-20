@@ -2,6 +2,7 @@
 
 require 'fileutils'
 require 'irasutoya'
+require 'irasutoya/cli/https_url'
 require 'open-uri'
 require 'tempfile'
 require 'thor'
@@ -25,19 +26,18 @@ module Irasutoya
       private
 
       def page_images
-        uri = URI.parse(@page_url)
-        unless uri.is_a?(URI::HTTP) && %w[irasutoya.com www.irasutoya.com].include?(uri.host&.downcase) &&
-               uri.path.end_with?('.html')
+        uri = HttpsUrl.parse(@page_url)
+        unless %w[irasutoya.com www.irasutoya.com].include?(uri.host.downcase) && uri.path.end_with?('.html')
           raise Thor::Error, 'Provide an Irasutoya illustration page URL printed by search or random.'
         end
 
-        Irasutoya::IrasutoLink.new(title: nil, show_url: @page_url).fetch_irasuto.image_urls
+        Irasutoya::IrasutoLink.new(title: nil, show_url: uri.to_s).fetch_irasuto.image_urls
       rescue URI::InvalidURIError
         raise Thor::Error, 'Provide an Irasutoya illustration page URL printed by search or random.'
       end
 
       def save_image(url)
-        uri = URI.parse(url)
+        uri = HttpsUrl.parse(url)
         filename = File.basename(uri.path)
         filename = 'image' if ['', '.', '..', '/'].include?(filename)
         Tempfile.create('.irasutoya-', @directory, binmode: true) do |file|
@@ -45,6 +45,8 @@ module Irasutoya
           file.flush
           link_image(file.path, filename)
         end
+      rescue URI::InvalidURIError => e
+        raise Thor::Error, "Could not download #{url}: #{e.message}"
       end
 
       def copy_image(uri, file)

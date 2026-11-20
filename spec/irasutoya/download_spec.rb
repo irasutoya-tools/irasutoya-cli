@@ -12,6 +12,7 @@ RSpec.describe 'irasutoya download' do
   let(:image_urls) { %w[https://example.com/cat.png https://example.com/other/cat.png?size=large] }
   let(:image_data) { ["\x89PNG".b, "\xFF\xFE".b] }
   let(:directory) { File.join(@workspace, 'nested', 'images') }
+  let!(:link) { Irasutoya::IrasutoLink.new(title: nil, show_url: page_url) }
 
   around do |example|
     Dir.mktmpdir do |workspace|
@@ -23,7 +24,6 @@ RSpec.describe 'irasutoya download' do
   before do
     images = image_urls.map { |url| %(<img src="#{url}">) }.join
     page = Nokogiri::HTML("<div class='entry'>#{images}</div>")
-    link = Irasutoya::IrasutoLink.new(title: nil, show_url: page_url)
     allow(Irasutoya::IrasutoLink).to receive(:new).with(title: nil, show_url: page_url).and_return(link)
     allow(link).to receive(:fetch_page_and_parse).with(page_url).and_return(page)
     allow(URI).to receive(:parse).and_call_original
@@ -42,6 +42,51 @@ RSpec.describe 'irasutoya download' do
     expect { run_download }.to output(paths.map { |path| "Saved: #{path}\n" }.join).to_stdout
     expect(paths.map { |path| File.binread(path) }).to eq(image_data)
     expect(Dir.children(directory)).to match_array(%w[cat.png cat-1.png])
+  end
+
+  it 'upgrades an HTTP page URL before passing it to the scraper' do
+    expect { run_download(page_url.sub('https:', 'http:')) }.to output(/Saved: .*cat\.png/).to_stdout
+  end
+
+  context 'with a legacy HTTP image URL' do
+    let(:image_urls) { ['http://example.com/cat.png'] }
+
+    it 'opens the HTTPS image URL and saves its contents' do
+      uri = URI.parse('https://example.com/cat.png')
+      allow(URI).to receive(:parse).with(uri.to_s).and_return(uri)
+      stub_image_response(uri, image_data.first, {})
+      expect(URI.parse(image_urls.first)).not_to receive(:open)
+
+      expect { run_download }.to output(/Saved: .*cat\.png/).to_stdout
+      expect(File.binread(File.join(directory, 'cat.png'))).to eq(image_data.first)
+    end
+  end
+
+  context 'with a non-HTTPS image URL that cannot be upgraded' do
+    let(:image_urls) { ['ftp://example.com/cat.png'] }
+
+    it 'rejects the image before opening its URL' do
+      expect(URI.parse(image_urls.first)).not_to receive(:open)
+
+      expect do
+        expect { run_download }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      end.to output("Could not download #{image_urls.first}: URL must use HTTPS\n").to_stderr
+      expect(Dir.children(directory)).to be_empty
+    end
+  end
+
+  %i[page image].each do |resource|
+    it "rejects an HTTP redirect from the #{resource} before contacting the destination" do
+      url = resource == :page ? page_url : image_urls.first
+      allow(link).to receive(:fetch_page_and_parse).and_call_original if resource == :page
+      allow(URI.parse(url)).to receive(:open).and_call_original if resource == :image
+      destination = URI.parse('http://other.example.com/resource')
+      expect(OpenURI).to receive(:open_http).with(anything, URI.parse(url), anything, anything).once do
+        throw :open_uri_redirect, destination
+      end
+
+      expect { run_download }.to raise_error(RuntimeError, /redirection forbidden/)
+    end
   end
 
   it 'preserves existing files and skips occupied suffixes' do

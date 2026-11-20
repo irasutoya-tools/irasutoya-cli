@@ -2,6 +2,7 @@
 
 require 'open-uri'
 require 'tempfile'
+require 'irasutoya/cli/https_url'
 require 'irasutoya/cli/version'
 require 'thor'
 
@@ -20,8 +21,8 @@ module Irasutoya
 
       desc 'random', 'Gives you random irasutoya image'
       def random
-        require 'irasutoya'
-        display(Irasutoya::Irasuto.random)
+        require 'irasutoya/cli/illustration'
+        display(Illustration.random)
       end
 
       desc 'search {query}', 'Shows images from up to three result pages. Each page can contain multiple images.'
@@ -45,8 +46,10 @@ module Irasutoya
       private
 
       def fetch_result(link)
+        url = HttpsUrl.parse(link.show_url).to_s
+        link = Irasutoya::IrasutoLink.new(title: link.title, show_url: url) if url != link.show_url
         link.fetch_irasuto
-      rescue OpenURI::HTTPError => e
+      rescue OpenURI::HTTPError, URI::InvalidURIError => e
         warn "warn: Could not fetch result page #{link.show_url}: #{e.message}"
         nil
       end
@@ -75,7 +78,7 @@ module Irasutoya
         require 'net/http'
 
         Tempfile.create(binmode: true) do |file|
-          download_preview(URI.parse(image_url), file)
+          download_preview(HttpsUrl.parse(image_url), file)
           file.rewind
           TerminalImage.show(file)
         end
@@ -86,20 +89,18 @@ module Irasutoya
       end
 
       def download_preview(uri, file, redirects_left = MAX_PREVIEW_REDIRECTS)
-        raise Error, 'Image preview URL must use HTTP or HTTPS' unless uri.is_a?(URI::HTTP)
-
         redirect = stream_preview(uri, file)
         return unless redirect
         raise Error, 'Too many image preview redirects' if redirects_left.zero?
 
         location = uri + redirect
-        raise Error, 'Image preview redirect must use HTTPS' if uri.scheme == 'https' && location.scheme != 'https'
+        raise Error, 'Image preview redirect must use HTTPS' unless location.is_a?(URI::HTTPS) && location.host
 
         download_preview(location, file, redirects_left - 1)
       end
 
       def stream_preview(uri, file)
-        Net::HTTP.start(uri.hostname, uri.port, use_ssl: uri.scheme == 'https', max_retries: 0) do |http|
+        Net::HTTP.start(uri.hostname, uri.port, use_ssl: true, max_retries: 0) do |http|
           http.request_get(uri.request_uri) do |response|
             return response.fetch('location') if %w[301 302 303 307 308].include?(response.code)
 
