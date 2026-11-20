@@ -3,6 +3,7 @@
 require 'open-uri'
 require 'tempfile'
 require 'timeout'
+require 'irasutoya/cli/preview_sessions'
 require 'irasutoya/cli/version'
 require 'thor'
 
@@ -22,18 +23,20 @@ module Irasutoya
       desc 'random', 'Gives you random irasutoya image'
       def random
         require 'irasutoya'
-        display(Irasutoya::Irasuto.random)
+        with_preview_sessions { display(Irasutoya::Irasuto.random) }
       end
 
       desc 'search {query}', 'Shows images from up to three result pages. Each page can contain multiple images.'
       def search(query)
         require 'irasutoya'
-        Irasutoya::Irasuto
-          .search(query:)
-          .take(3)
-          .lazy
-          .filter_map(&method(:fetch_result))
-          .each(&method(:display))
+        with_preview_sessions do
+          Irasutoya::Irasuto
+            .search(query:)
+            .take(3)
+            .lazy
+            .filter_map(&method(:fetch_result))
+            .each(&method(:display))
+        end
       end
 
       desc 'download PAGE_URL', 'Saves all images from an illustration page'
@@ -92,7 +95,7 @@ module Irasutoya
       def download_preview(uri, file, redirects_left = MAX_PREVIEW_REDIRECTS)
         raise Error, 'Image preview URL must use HTTP or HTTPS' unless uri.is_a?(URI::HTTP)
 
-        redirect = stream_preview(uri, file)
+        redirect = @preview_sessions.get(uri) { |response| write_preview(response, file) }
         return unless redirect
         raise Error, 'Too many image preview redirects' if redirects_left.zero?
 
@@ -102,19 +105,15 @@ module Irasutoya
         download_preview(location, file, redirects_left - 1)
       end
 
-      def stream_preview(uri, file)
-        Net::HTTP.start(uri.hostname, uri.port, use_ssl: uri.scheme == 'https', max_retries: 0) do |http|
-          http.request_get(uri.request_uri) do |response|
-            return response.fetch('location') if %w[301 302 303 307 308].include?(response.code)
-
-            response.value
-            write_preview(response, file)
-          end
-        end
-        nil
+      def with_preview_sessions
+        @preview_sessions = PreviewSessions.new
+        yield
+      ensure
+        @preview_sessions.close
       end
 
       def write_preview(response, file)
+        response.value
         response.read_body do |chunk|
           raise PreviewTooLarge if file.pos + chunk.bytesize > MAX_PREVIEW_BYTES
 
