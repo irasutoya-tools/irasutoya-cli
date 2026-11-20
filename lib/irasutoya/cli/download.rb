@@ -19,7 +19,8 @@ module Irasutoya
         raise Thor::Error, "No images found on #{@page_url}" if images.empty?
 
         FileUtils.mkdir_p(@directory)
-        images.each { |url| yield save_image(url) }
+        next_suffixes = Hash.new(0)
+        images.each { |url| yield save_image(url, next_suffixes) }
       end
 
       private
@@ -36,14 +37,14 @@ module Irasutoya
         raise Thor::Error, 'Provide an Irasutoya illustration page URL printed by search or random.'
       end
 
-      def save_image(url)
+      def save_image(url, next_suffixes)
         uri = URI.parse(url)
         filename = File.basename(uri.path)
         filename = 'image' if ['', '.', '..', '/'].include?(filename)
         Tempfile.create('.irasutoya-', @directory, binmode: true) do |file|
           copy_image(uri, file)
           file.flush
-          link_image(file.path, filename)
+          link_image(file.path, filename, next_suffixes)
         end
       end
 
@@ -57,33 +58,35 @@ module Irasutoya
         raise Thor::Error, "Incomplete image download from #{uri}: #{e.message}"
       end
 
-      def link_image(source, filename)
-        path = File.join(@directory, filename)
-        File.link(source, path)
-        path
-      rescue Errno::EEXIST
-        link_with_suffix(source, filename)
-      end
-
-      def link_with_suffix(source, filename)
-        extension = File.extname(filename)
-        stem = File.basename(filename, extension)
-        1.step do |index|
-          return link_candidate(source, stem, "-#{index}#{extension}")
+      def link_image(source, filename, next_suffixes)
+        next_suffixes[filename].step do |index|
+          path = index.zero? ? link_path(source, filename) : link_with_suffix(source, filename, index)
+          next_suffixes[filename] = index + 1
+          return path
         rescue Errno::EEXIST
           next
         end
       end
 
-      def link_candidate(source, stem, ending)
-        path = File.join(@directory, "#{stem}#{ending}")
-        File.link(source, path)
-        path
+      def link_with_suffix(source, filename, index)
+        extension = File.extname(filename)
+        stem = File.basename(filename, extension)
+        link_with_stem(source, stem, "-#{index}#{extension}")
+      end
+
+      def link_with_stem(source, stem, ending)
+        link_path(source, "#{stem}#{ending}")
       rescue Errno::ENAMETOOLONG
         raise if stem.empty?
 
         stem = stem[0...-1]
         retry
+      end
+
+      def link_path(source, filename)
+        path = File.join(@directory, filename)
+        File.link(source, path)
+        path
       end
     end
   end
