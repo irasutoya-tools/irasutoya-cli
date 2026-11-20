@@ -51,6 +51,7 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
 
     let(:runner) { Irasutoya::Cli::Runner.new([], {}, shell: Thor::Shell::Basic.new) }
     let(:image_data) { %w[first other] }
+    let(:headers) { { 'Accept-Encoding' => 'identity' } }
     let(:http) { instance_double(Net::HTTP, finish: nil) }
     let(:responses) do
       irasuto.image_urls.zip(image_data).to_h do |url, data|
@@ -72,8 +73,8 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
 
     before do
       stub_const('Irasutoya::Cli::Runner::MAX_PREVIEW_BYTES', image_data.first.bytesize)
-      allow(Net::HTTP).to receive(:start).with('example.com', 80, use_ssl: false, max_retries: 0).and_return(http)
-      responses.each { |path, response| allow(http).to receive(:request_get).with(path).and_yield(response) }
+      allow(Net::HTTP).to receive(:start).with('example.com', 80, use_ssl: false, max_retries: 0, ignore_eof: false).and_return(http)
+      responses.each { |path, response| allow(http).to receive(:request_get).with(path, headers).and_yield(response) }
       allow(Irasutoya::Cli::Preview).to receive(:show)
     end
 
@@ -141,7 +142,7 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
 
       it 'stops reading an oversized image without Content-Length and renders the next image' do
         oversized = Net::HTTPOK.new('1.1', '200', 'OK')
-        allow(http).to receive(:request_get).with('/test.png').and_yield(oversized)
+        allow(http).to receive(:request_get).with('/test.png', headers).and_yield(oversized)
         allow(oversized).to receive(:read_body) do |&read_chunk|
           read_chunk.call(image_data.first)
           read_chunk.call('x')
@@ -163,9 +164,9 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
         redirect = Net::HTTPFound.new('1.1', '302', 'Found')
         redirect['location'] = '/redirected.png'
         redirect['content-length'] = '10'
-        allow(http).to receive(:request_get).with('/test.png').and_yield(redirect)
+        allow(http).to receive(:request_get).with('/test.png', headers).and_yield(redirect)
         expect(redirect).not_to receive(:read_body)
-        expect(http).to receive(:request_get).with('/redirected.png').and_yield(responses.fetch('/test.png'))
+        expect(http).to receive(:request_get).with('/redirected.png', headers).and_yield(responses.fetch('/test.png'))
         expect(Net::HTTP).to receive(:start).twice.and_return(http)
         expect(http).to receive(:finish).twice
         expect(Irasutoya::Cli::Preview).to receive(:show).twice
@@ -177,7 +178,7 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
       end
 
       it 'removes the temporary file when downloading fails' do
-        allow(http).to receive(:request_get).with('/test.png').and_raise(IOError, 'download failed')
+        allow(http).to receive(:request_get).with('/test.png', headers).and_raise(IOError, 'download failed')
 
         allow($stdout).to receive(:tty?).and_return(true)
         expect { subject }.to raise_error(IOError, 'download failed')
@@ -249,7 +250,7 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
           allow(Irasutoya::Irasuto).to receive(:search).and_return([irasuto_link, next_link])
           next_response = Net::HTTPOK.new('1.1', '200', 'OK')
           allow(next_response).to receive(:read_body).and_yield('next')
-          allow(http).to receive(:request_get).with('/next.png').and_yield(next_response)
+          allow(http).to receive(:request_get).with('/next.png', headers).and_yield(next_response)
         end
 
         shared_examples 'a recoverable preview failure' do
@@ -279,7 +280,19 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
 
           before do
             missing = Net::HTTPNotFound.new('1.1', '404', 'Not Found')
-            allow(http).to receive(:request_get).with('/test.png').and_yield(missing)
+            allow(http).to receive(:request_get).with('/test.png', headers).and_yield(missing)
+          end
+
+          include_examples 'a recoverable preview failure'
+        end
+
+        context 'when an image download returns partial content' do
+          let(:message) { 'HTTP 206 Partial Content' }
+
+          before do
+            partial = Net::HTTPPartialContent.new('1.1', '206', 'Partial Content')
+            allow(http).to receive(:request_get).with('/test.png', headers).and_yield(partial)
+            expect(partial).not_to receive(:read_body)
           end
 
           include_examples 'a recoverable preview failure'
