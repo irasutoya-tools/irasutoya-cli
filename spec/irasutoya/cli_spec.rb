@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'irasutoya'
+require 'irasutoya/cli/preview'
 require 'net/http'
 require 'open-uri'
 require 'terminal_image'
@@ -73,13 +74,13 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
       stub_const('Irasutoya::Cli::Runner::MAX_PREVIEW_BYTES', image_data.first.bytesize)
       allow(Net::HTTP).to receive(:start).with('example.com', 80, use_ssl: false, max_retries: 0).and_return(http)
       responses.each { |path, response| allow(http).to receive(:request_get).with(path).and_yield(response) }
-      allow(TerminalImage).to receive(:show)
+      allow(Irasutoya::Cli::Preview).to receive(:show)
     end
 
     shared_examples_for 'a command displays irasuto' do
       it 'prints metadata without downloading or rendering when stdout is redirected' do
         expect(Net::HTTP).not_to receive(:start)
-        expect(TerminalImage).not_to receive(:show)
+        expect(Irasutoya::Cli::Preview).not_to receive(:show)
 
         expect do
           allow($stdout).to receive(:tty?).and_return(false)
@@ -118,7 +119,7 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
         end
 
         it 'escapes metadata controls while preserving Japanese text and renderer output' do
-          allow(TerminalImage).to receive(:show) { print "\e[0m" }
+          allow(Irasutoya::Cli::Preview).to receive(:show) { print "\e[0m" }
 
           expect do
             allow($stdout).to receive(:tty?).and_return(true)
@@ -129,7 +130,7 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
 
       it 'renders each image at the byte limit and removes its temporary file' do
         rendered_images = []
-        allow(TerminalImage).to receive(:show) { |file| rendered_images << file.read }
+        allow(Irasutoya::Cli::Preview).to receive(:show) { |file| rendered_images << file.read }
         expect do
           allow($stdout).to receive(:tty?).and_return(true)
           subject
@@ -147,7 +148,7 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
           raise 'Download continued past the byte limit'
         end
 
-        expect(TerminalImage).to receive(:show).once do |file|
+        expect(Irasutoya::Cli::Preview).to receive(:show).once do |file|
           expect(file.read).to eq(image_data.last)
         end
         warning = "warn: Image preview exceeds the #{image_data.first.bytesize}-byte limit\n"
@@ -167,7 +168,7 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
         expect(http).to receive(:request_get).with('/redirected.png').and_yield(responses.fetch('/test.png'))
         expect(Net::HTTP).to receive(:start).twice.and_return(http)
         expect(http).to receive(:finish).twice
-        expect(TerminalImage).to receive(:show).twice
+        expect(Irasutoya::Cli::Preview).to receive(:show).twice
 
         expect do
           allow($stdout).to receive(:tty?).and_return(true)
@@ -184,7 +185,7 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
       end
 
       it 'removes the temporary file when rendering fails' do
-        allow(TerminalImage).to receive(:show).and_raise(IOError, 'render failed')
+        allow(Irasutoya::Cli::Preview).to receive(:show).and_raise(IOError, 'render failed')
 
         allow($stdout).to receive(:tty?).and_return(true)
         expect { subject }.to raise_error(IOError, 'render failed')
@@ -254,7 +255,7 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
         shared_examples 'a recoverable preview failure' do
           it 'warns, renders later previews in order, and removes the temporary files' do
             [image_data.last, 'next'].each do |data|
-              expect(TerminalImage).to receive(:show).ordered { |file| expect(file.read).to eq(data) }
+              expect(Irasutoya::Cli::Preview).to receive(:show).ordered { |file| expect(file.read).to eq(data) }
             end
 
             warning = "warn: Could not preview #{irasuto.image_urls.first}: #{message}\n"
@@ -302,7 +303,7 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
           context "when rendering raises #{error_class}" do
             let(:message) { 'preview failed' }
 
-            before { expect(TerminalImage).to receive(:show).ordered.and_raise(error_class, message) }
+            before { expect(Irasutoya::Cli::Preview).to receive(:show).ordered.and_raise(error_class, message) }
 
             include_examples 'a recoverable preview failure'
           end
