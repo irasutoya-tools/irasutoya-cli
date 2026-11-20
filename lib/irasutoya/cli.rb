@@ -39,8 +39,11 @@ module Irasutoya
       desc 'download PAGE_URL', 'Saves all images from an illustration page'
       method_option :output, type: :string, required: true, banner: 'DIR'
       def download(page_url)
+        directory = options[:output]
+        raise Thor::Error, 'Provide an output directory with --output.' if directory.empty?
+
         require 'irasutoya/cli/download'
-        Download.new(page_url, options[:output]).save { |path| say "Saved: #{path}" }
+        Download.new(page_url, directory).save { |path| say "Saved: #{path}" }
       end
 
       private
