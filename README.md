@@ -1,5 +1,6 @@
 # Irasutoya::Cli
 
+[![CI](https://github.com/irasutoya-tools/irasutoya-cli/actions/workflows/test.yml/badge.svg?branch=master)](https://github.com/irasutoya-tools/irasutoya-cli/actions/workflows/test.yml)
 [![Gem Version](https://badge.fury.io/rb/irasutoya-cli.svg)](https://badge.fury.io/rb/irasutoya-cli)
 [![Code Climate](https://codeclimate.com/github/irasutoya-tools/irasutoya-cli/badges/gpa.svg)](https://codeclimate.com/github/irasutoya-tools/irasutoya-cli)
 [![codecov](https://codecov.io/gh/irasutoya-tools/irasutoya-cli/branch/master/graph/badge.svg)](https://codecov.io/gh/irasutoya-tools/irasutoya-cli)
