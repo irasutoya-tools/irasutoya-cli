@@ -2,6 +2,7 @@
 
 require 'open-uri'
 require 'tempfile'
+require 'timeout'
 require 'irasutoya/cli/version'
 require 'thor'
 
@@ -46,7 +47,7 @@ module Irasutoya
 
       def fetch_result(link)
         link.fetch_irasuto
-      rescue OpenURI::HTTPError => e
+      rescue OpenURI::HTTPError, Timeout::Error => e
         warn "warn: Could not fetch result page #{link.show_url}: #{e.message}"
         nil
       end
