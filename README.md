@@ -1,5 +1,6 @@
 # Irasutoya::Cli
 
+[![CI](https://github.com/irasutoya-tools/irasutoya-cli/actions/workflows/test.yml/badge.svg?branch=master)](https://github.com/irasutoya-tools/irasutoya-cli/actions/workflows/test.yml)
 [![Gem Version](https://badge.fury.io/rb/irasutoya-cli.svg)](https://badge.fury.io/rb/irasutoya-cli)
 [![Code Climate](https://codeclimate.com/github/irasutoya-tools/irasutoya-cli/badges/gpa.svg)](https://codeclimate.com/github/irasutoya-tools/irasutoya-cli)
 [![codecov](https://codecov.io/gh/irasutoya-tools/irasutoya-cli/branch/master/graph/badge.svg)](https://codecov.io/gh/irasutoya-tools/irasutoya-cli)
@@ -33,6 +34,8 @@ For each result, the CLI prints the illustration's page URL, title, description,
 $ irasutoya download 'PAGE_URL' --output ./images
 ```
 
+Choose an `--output` directory on a filesystem that supports hard links. The command uses hard links to save images, so a FAT32 destination will fail even if it is writable.
+
 The command creates the destination directory if needed, saves every image on the page, and prints each saved path. If a filename is already taken, the command adds a numeric suffix before the extension. Downloads work in terminals without inline preview support.
 
 Each image download is limited to 10 MiB (10,485,760 bytes). If an image exceeds the limit, the command stops and discards that download. Images already saved are kept.
@@ -47,6 +50,8 @@ Commands:
   irasutoya random          # Gives you random irasutoya image
   irasutoya search {query}  # Shows images from up to three result pages. Each page can contain multiple images.
 ```
+
+See the [CLI reference](https://github.com/irasutoya-tools/irasutoya-cli/blob/master/docs/usage.md) for command arguments, output, and preview behavior.
 
 ## Contributing
 
