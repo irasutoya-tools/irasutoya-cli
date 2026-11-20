@@ -255,10 +255,16 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
             end
 
             warning = "warn: Could not preview #{irasuto.image_urls.first}: #{message}\n"
+            next_output = <<~EXPECTED
+              Page URL:    #{next_result.url}
+              Title:       #{next_result.title}
+              Description: #{next_result.description}
+              Image URL:   #{next_result.image_urls.first}
+            EXPECTED
             expect do
               allow($stdout).to receive(:tty?).and_return(true)
               subject
-            end.to output(/#{Regexp.escape(expected + warning)}.*Title:       Next result/m).to_stdout
+            end.to output(expected + warning + next_output).to_stdout
 
             expect(Dir.children(ENV.fetch('TMPDIR'))).to be_empty
           end
@@ -270,6 +276,20 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
           before do
             missing = Net::HTTPNotFound.new('1.1', '404', 'Not Found')
             allow(http).to receive(:request_get).with('/test.png').and_yield(missing)
+          end
+
+          include_examples 'a recoverable preview failure'
+        end
+
+        context 'when reading the first image body times out' do
+          let(:timeout) { Net::ReadTimeout.new }
+          let(:message) { timeout.message }
+
+          before do
+            allow(responses.fetch('/test.png')).to receive(:read_body) do |&read_chunk|
+              read_chunk.call('pa')
+              raise timeout
+            end
           end
 
           include_examples 'a recoverable preview failure'
