@@ -4,7 +4,7 @@ require 'fileutils'
 require 'irasutoya'
 require 'irasutoya/cli/download'
 require 'nokogiri'
-require 'terminal_image'
+require 'irasutoya/cli/preview'
 require 'tmpdir'
 
 RSpec.describe 'irasutoya download' do
@@ -38,7 +38,7 @@ RSpec.describe 'irasutoya download' do
 
   it 'saves every image, reports the paths, and skips the preview renderer' do
     allow($stdout).to receive(:tty?).and_return(true)
-    expect(TerminalImage).not_to receive(:show)
+    expect(Irasutoya::Cli::Preview).not_to receive(:show)
     paths = %w[cat.png cat-1.png].map { |name| File.join(directory, name) }
 
     expect { run_download }.to output(paths.map { |path| "Saved: #{path}\n" }.join).to_stdout

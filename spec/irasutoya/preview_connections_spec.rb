@@ -2,7 +2,7 @@
 
 require 'irasutoya'
 require 'socket'
-require 'terminal_image'
+require 'irasutoya/cli/preview'
 
 RSpec.describe Irasutoya::Cli::Runner do
   let(:runner) { described_class.new([], {}, shell: Thor::Shell::Basic.new) }
@@ -11,7 +11,7 @@ RSpec.describe Irasutoya::Cli::Runner do
   before do
     allow($stdout).to receive(:tty?).and_return(true)
     allow(runner).to receive(:say)
-    allow(TerminalImage).to receive(:show) { |file| rendered << file.read }
+    allow(Irasutoya::Cli::Preview).to receive(:show) { |file| rendered << file.read }
   end
 
   it 'reuses one connection across search results and follows a bodyless same-origin redirect' do
@@ -36,7 +36,7 @@ RSpec.describe Irasutoya::Cli::Runner do
     serve_previews([['/image.png', '200 OK', {}, 'image']]) do |target|
       serve_previews([['/redirect.png', '302 Found', { 'Location' => "#{target}/image.png" }, '']]) do |origin|
         allow(Irasutoya::Irasuto).to receive(:random).and_return(illustration("#{origin}/redirect.png"))
-        allow(TerminalImage).to receive(:show).and_raise(IOError, 'render failed')
+        allow(Irasutoya::Cli::Preview).to receive(:show).and_raise(IOError, 'render failed')
 
         expect { runner.random }.to raise_error(IOError, 'render failed')
       end
