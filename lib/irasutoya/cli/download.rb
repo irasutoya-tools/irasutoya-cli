@@ -19,7 +19,8 @@ module Irasutoya
         raise Thor::Error, "No images found on #{@page_url}" if images.empty?
 
         FileUtils.mkdir_p(@directory)
-        images.each { |url| yield save_image(url) }
+        next_suffixes = Hash.new(0)
+        images.each { |url| yield save_image(url, next_suffixes) }
       end
 
       private
@@ -43,14 +44,14 @@ module Irasutoya
         raise Thor::Error, "Could not fetch illustration page #{@page_url}: #{e.message}"
       end
 
-      def save_image(url)
+      def save_image(url, next_suffixes)
         uri = URI.parse(url)
         filename = File.basename(uri.path)
         filename = 'image' if ['', '.', '..', '/'].include?(filename)
         Tempfile.create('.irasutoya-', @directory, binmode: true) do |file|
           copy_image(uri, file)
           file.flush
-          link_image(file.path, filename)
+          link_image(file.path, filename, next_suffixes)
         end
       end
 
@@ -64,17 +65,22 @@ module Irasutoya
         raise Thor::Error, "Incomplete image download from #{uri}: #{e.message}"
       end
 
-      def link_image(source, filename)
-        extension = File.extname(filename)
-        stem = File.basename(filename, extension)
-        0.step do |index|
-          name = index.zero? ? filename : "#{stem}-#{index}#{extension}"
-          path = File.join(@directory, name)
+      def link_image(source, filename, next_suffixes)
+        next_suffixes[filename].step do |index|
+          path = File.join(@directory, suffixed_filename(filename, index))
           File.link(source, path)
+          next_suffixes[filename] = index + 1
           return path
         rescue Errno::EEXIST
           next
         end
+      end
+
+      def suffixed_filename(filename, index)
+        return filename if index.zero?
+
+        extension = File.extname(filename)
+        "#{File.basename(filename, extension)}-#{index}#{extension}"
       end
     end
   end
