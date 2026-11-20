@@ -15,6 +15,7 @@ module Irasutoya
     class Runner < Thor
       MAX_PREVIEW_BYTES = 10 * 1024 * 1024
       MAX_PREVIEW_REDIRECTS = 5
+      JSONL_OPTION = { type: :boolean, desc: 'Print one JSON object per result' }.freeze
       class PreviewTooLarge < Error; end
 
       def self.exit_on_failure?
@@ -22,12 +23,14 @@ module Irasutoya
       end
 
       desc 'random', 'Gives you random irasutoya image'
+      method_option :jsonl, **JSONL_OPTION
       def random
         require 'irasutoya/cli/illustration'
         with_preview_sessions { display(Illustration.random) }
       end
 
       desc 'search {query}', 'Shows images from up to three result pages. Each page can contain multiple images.'
+      method_option :jsonl, **JSONL_OPTION
       def search(query)
         require 'irasutoya'
         with_preview_sessions do
@@ -62,12 +65,23 @@ module Irasutoya
       end
 
       def display(irasuto)
+        return display_jsonl(irasuto) if options[:jsonl]
+
         require 'terminal_image'
 
         display_metadata(irasuto)
         return unless $stdout.tty?
 
         irasuto.image_urls.each(&method(:show_preview))
+      end
+
+      def display_jsonl(irasuto)
+        require 'json'
+
+        result = { page_url: irasuto.url, title: irasuto.title,
+                   description: irasuto.description, image_urls: irasuto.image_urls }
+        $stdout.puts JSON.generate(result)
+        $stdout.flush
       end
 
       def display_metadata(irasuto)
