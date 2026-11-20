@@ -72,6 +72,19 @@ RSpec.describe 'irasutoya download' do
     expect(Dir.children(directory)).to eq(['cat.png'])
   end
 
+  context 'when the illustration page contains no images' do
+    let(:image_urls) { [] }
+
+    it 'reports the page URL and exits with status 1 before creating the destination' do
+      expect do
+        expect do
+          expect { run_download }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+        end.to output("No images found on #{page_url}\n").to_stderr
+      end.to output('').to_stdout
+      expect(File.exist?(directory)).to be(false)
+    end
+  end
+
   ['https://example.com/cat.html', 'https://www.irasutoya.com/cat photo.html'].each do |url|
     it "rejects #{url.inspect} before fetching the page or creating the output directory" do
       expect(Irasutoya::IrasutoLink).not_to receive(:new)
