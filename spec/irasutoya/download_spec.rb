@@ -153,6 +153,22 @@ RSpec.describe 'irasutoya download' do
     expect(Dir.children(directory)).to eq(['cat.png'])
   end
 
+  it 'rejects a complete partial response without saving or announcing the image' do
+    response = Net::HTTPPartialContent.new('1.1', '206', 'Partial Content')
+    response['content-length'] = '5'
+    response['content-range'] = 'bytes 5-9/12'
+    allow(http).to receive(:request_get).with(URI.parse(image_urls.first).request_uri, request_headers)
+                                       .and_yield(response)
+    expect(response).not_to receive(:read_body)
+
+    expect do
+      expect do
+        expect { run_download }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      end.to output("Incomplete image download from #{image_urls.first}: HTTP 206 Partial Content\n").to_stderr
+    end.to output('').to_stdout
+    expect(Dir.children(directory)).to be_empty
+  end
+
   it 'uses chunked framing when both Transfer-Encoding and Content-Length are present' do
     response = stub_image(image_urls.last, image_data.last)
     response['transfer-encoding'] = 'chunked'
