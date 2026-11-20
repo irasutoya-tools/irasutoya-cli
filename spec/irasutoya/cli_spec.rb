@@ -289,6 +289,7 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
       context 'when a result page returns 404' do
         let(:missing_url) { 'http://example.com/missing' }
         let(:last_url) { 'http://example.com/last' }
+        let(:message) { '404 Not Found' }
 
         before do
           missing_link = Irasutoya::IrasutoLink.new(title: 'missing', show_url: missing_url)
@@ -298,7 +299,7 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
           )
           allow(Irasutoya::Irasuto).to receive(:search).and_return([irasuto_link, missing_link, last_link])
           allow(missing_link).to receive(:fetch_irasuto)
-            .and_raise(OpenURI::HTTPError.new('404 Not Found', nil))
+            .and_raise(OpenURI::HTTPError.new(message, nil))
           allow(last_link).to receive(:fetch_irasuto).and_return(last_result)
         end
 
@@ -306,6 +307,18 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
           last_output = expected.sub(irasuto.url, last_url).sub('Title:       title', 'Title:       last')
           expect { subject }.to output(expected + last_output).to_stdout
             .and output("warn: Could not fetch result page #{missing_url}: 404 Not Found\n").to_stderr
+        end
+
+        context 'when the failed URL and error message contain terminal controls' do
+          let(:missing_url) { "http://example.com/missing\a" }
+          let(:message) { "404 Not Found\e[2J\r\n" }
+
+          it 'escapes the warning and displays later results' do
+            warning = 'warn: Could not fetch result page http://example.com/missing\x07: 404 Not Found\x1B[2J\x0D\x0A'
+            last_output = expected.sub(irasuto.url, last_url).sub('Title:       title', 'Title:       last')
+            expect { subject }.to output(expected + last_output).to_stdout
+              .and output(warning + "\n").to_stderr
+          end
         end
       end
     end

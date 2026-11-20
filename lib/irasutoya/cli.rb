@@ -47,7 +47,7 @@ module Irasutoya
       def fetch_result(link)
         link.fetch_irasuto
       rescue OpenURI::HTTPError => e
-        warn "warn: Could not fetch result page #{link.show_url}: #{e.message}"
+        warn "warn: Could not fetch result page #{escape_controls(link.show_url)}: #{escape_controls(e.message)}"
         nil
       end
 
