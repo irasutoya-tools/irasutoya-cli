@@ -13,6 +13,7 @@ RSpec.describe 'irasutoya download' do
   let(:image_urls) { %w[https://example.com/cat.png https://example.com/other/cat.png?size=large] }
   let(:image_data) { ["\x89PNG".b, "\xFF\xFE".b] }
   let(:directory) { File.join(@workspace, 'nested', 'images') }
+  let(:link) { Irasutoya::IrasutoLink.new(title: nil, show_url: page_url) }
   let(:http) { instance_double(Net::HTTP, finish: nil) }
   let(:request_headers) { { 'Accept-Encoding' => 'identity' } }
 
@@ -26,7 +27,6 @@ RSpec.describe 'irasutoya download' do
   before do
     images = image_urls.map { |url| %(<img src="#{url}">) }.join
     page = Nokogiri::HTML("<div class='entry'>#{images}</div>")
-    link = Irasutoya::IrasutoLink.new(title: nil, show_url: page_url)
     allow(Irasutoya::IrasutoLink).to receive(:new).with(title: nil, show_url: page_url).and_return(link)
     allow(link).to receive(:fetch_page_and_parse).with(page_url).and_return(page)
     allow(Net::HTTP).to receive(:start).with('example.com', 443, use_ssl: true, max_retries: 0,
@@ -98,6 +98,15 @@ RSpec.describe 'irasutoya download' do
     expect(Dir.children(directory)).to eq(['cat.png'])
   end
 
+  it 'keeps completed images and propagates an image HTTP error' do
+    response = Net::HTTPNotFound.new('1.1', '404', 'Not Found')
+    allow(http).to receive(:request_get).with(URI.parse(image_urls.last).request_uri, request_headers)
+                                       .and_yield(response)
+
+    expect { run_download }.to raise_error(Irasutoya::Cli::ImageTransfer::ResponseError, '404 "Not Found"')
+    expect(Dir.children(directory)).to eq(['cat.png'])
+  end
+
   it 'stops reading an oversized response without Content-Length and removes its temporary file' do
     stub_const('Irasutoya::Cli::Download::MAX_IMAGE_BYTES', image_data.first.bytesize)
     response = stub_image(image_urls.last, image_data.last)
@@ -142,8 +151,7 @@ RSpec.describe 'irasutoya download' do
     allow(Net::HTTP).to receive(:start).with('example.com', 80, use_ssl: false, max_retries: 0,
                                            ignore_eof: false).and_return(http)
     images = Nokogiri::HTML('<div class="entry"><img src="http://example.com/cat.png"></div>')
-    allow(Irasutoya::IrasutoLink.new(title: nil, show_url: page_url))
-      .to receive(:fetch_page_and_parse).with(page_url).and_return(images)
+    allow(link).to receive(:fetch_page_and_parse).with(page_url).and_return(images)
 
     expect do
       expect { run_download }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
@@ -188,6 +196,16 @@ RSpec.describe 'irasutoya download' do
       end.to output("Incomplete image download from #{image_urls.last}: expected 12 bytes, received 5\n").to_stderr
     end.to output("Saved: #{File.join(directory, 'cat.png')}\n").to_stdout
     expect(Dir.children(directory)).to eq(['cat.png'])
+  end
+
+  it 'reports a missing illustration page once and exits before creating the destination' do
+    allow(link).to receive(:fetch_irasuto).and_raise(OpenURI::HTTPError.new('404 Not Found', nil))
+
+    expect do
+      expect { run_download }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+    end.to output("Could not fetch illustration page #{page_url}: 404 Not Found\n").to_stderr
+      .and output('').to_stdout
+    expect(File.exist?(File.dirname(directory))).to be(false)
   end
 
   it 'rejects a complete partial response without saving or announcing the image' do
