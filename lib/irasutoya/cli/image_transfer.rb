@@ -74,6 +74,8 @@ module Irasutoya
       end
 
       def stream_image(response, &)
+        raise IncompleteBodyError, 'HTTP 206 Partial Content' if response.code == '206'
+
         response.value
         read_body(response, &)
       end
