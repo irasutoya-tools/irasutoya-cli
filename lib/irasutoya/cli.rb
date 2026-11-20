@@ -4,6 +4,7 @@ require 'open-uri'
 require 'tempfile'
 require 'timeout'
 require 'irasutoya/cli/https_url'
+require 'irasutoya/cli/preview_sessions'
 require 'irasutoya/cli/version'
 require 'thor'
 
@@ -23,18 +24,20 @@ module Irasutoya
       desc 'random', 'Gives you random irasutoya image'
       def random
         require 'irasutoya/cli/illustration'
-        display(Illustration.random)
+        with_preview_sessions { display(Illustration.random) }
       end
 
       desc 'search {query}', 'Shows images from up to three result pages. Each page can contain multiple images.'
       def search(query)
         require 'irasutoya'
-        Irasutoya::Irasuto
-          .search(query:)
-          .take(3)
-          .lazy
-          .filter_map(&method(:fetch_result))
-          .each(&method(:display))
+        with_preview_sessions do
+          Irasutoya::Irasuto
+            .search(query:)
+            .take(3)
+            .lazy
+            .filter_map(&method(:fetch_result))
+            .each(&method(:display))
+        end
       end
 
       desc 'download PAGE_URL', 'Saves all images from an illustration page'
@@ -54,7 +57,7 @@ module Irasutoya
         link = Irasutoya::IrasutoLink.new(title: link.title, show_url: url) if url != link.show_url
         link.fetch_irasuto
       rescue OpenURI::HTTPError, Timeout::Error, URI::InvalidURIError => e
-        warn "warn: Could not fetch result page #{link.show_url}: #{e.message}"
+        warn "warn: Could not fetch result page #{escape_controls(link.show_url)}: #{escape_controls(e.message)}"
         nil
       end
 
@@ -93,7 +96,7 @@ module Irasutoya
       end
 
       def download_preview(uri, file, redirects_left = MAX_PREVIEW_REDIRECTS)
-        redirect = stream_preview(uri, file)
+        redirect = @preview_sessions.get(uri) { |response| write_preview(response, file) }
         return unless redirect
         raise Error, 'Too many image preview redirects' if redirects_left.zero?
 
@@ -103,19 +106,15 @@ module Irasutoya
         download_preview(location, file, redirects_left - 1)
       end
 
-      def stream_preview(uri, file)
-        Net::HTTP.start(uri.hostname, uri.port, use_ssl: true, max_retries: 0) do |http|
-          http.request_get(uri.request_uri) do |response|
-            return response.fetch('location') if %w[301 302 303 307 308].include?(response.code)
-
-            response.value
-            write_preview(response, file)
-          end
-        end
-        nil
+      def with_preview_sessions
+        @preview_sessions = PreviewSessions.new
+        yield
+      ensure
+        @preview_sessions.close
       end
 
       def write_preview(response, file)
+        response.value
         response.read_body do |chunk|
           raise PreviewTooLarge if file.pos + chunk.bytesize > MAX_PREVIEW_BYTES
 
