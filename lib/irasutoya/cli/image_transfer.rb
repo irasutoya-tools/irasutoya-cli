@@ -12,6 +12,9 @@ module Irasutoya
 
       class ResponseError < Error; end
       class IncompleteBodyError < ResponseError; end
+      class InvalidSchemeError < Error; end
+      class TooManyRedirectsError < Error; end
+      class InsecureRedirectError < Error; end
 
       def self.fetch(uri, &on_chunk)
         with_sessions { |transfer| transfer.fetch(uri, &on_chunk) }
@@ -30,11 +33,11 @@ module Irasutoya
 
       def fetch(uri, &on_chunk)
         MAX_REDIRECTS.downto(0) do |redirects_left|
-          raise Error, 'Image URL must use HTTP or HTTPS' unless uri.is_a?(URI::HTTP)
+          raise InvalidSchemeError, 'Image URL must use HTTP or HTTPS' unless uri.is_a?(URI::HTTP)
 
           redirect = request(uri, &on_chunk)
           break unless redirect
-          raise Error, 'Too many image redirects' if redirects_left.zero?
+          raise TooManyRedirectsError, 'Too many image redirects' if redirects_left.zero?
 
           uri = redirect_uri(uri, redirect)
         end
@@ -76,7 +79,8 @@ module Irasutoya
       end
 
       def session(uri, origin)
-        @sessions[origin] ||= Net::HTTP.start(uri.hostname, uri.port, use_ssl: uri.scheme == 'https', max_retries: 0)
+        options = { use_ssl: uri.scheme == 'https', max_retries: 0, ignore_eof: false }
+        @sessions[origin] ||= Net::HTTP.start(uri.hostname, uri.port, **options)
       end
 
       def empty_body?(response)
@@ -92,12 +96,16 @@ module Irasutoya
         end
         raise IncompleteBodyError, "expected #{length} bytes, received #{bytes}" if length && bytes < length
       rescue EOFError => e
+        raise IncompleteBodyError, "expected #{length} bytes, received #{bytes}" if length && bytes < length
+
         raise IncompleteBodyError, e.message
       end
 
       def redirect_uri(uri, location)
         target = uri + location
-        raise Error, 'Image redirect must use HTTPS' if uri.scheme == 'https' && target.scheme != 'https'
+        if uri.scheme == 'https' && target.scheme != 'https'
+          raise InsecureRedirectError, 'Image redirect must use HTTPS'
+        end
 
         target
       end

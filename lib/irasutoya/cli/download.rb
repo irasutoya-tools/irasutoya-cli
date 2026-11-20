@@ -9,6 +9,8 @@ require 'thor'
 module Irasutoya
   module Cli
     class Download
+      MAX_IMAGE_BYTES = 10 * 1024 * 1024
+
       def initialize(page_url, directory)
         @page_url = page_url
         @directory = directory
@@ -49,9 +51,23 @@ module Irasutoya
       end
 
       def copy_image(uri, destination)
-        ImageTransfer.fetch(uri) { |chunk| destination.write(chunk) }
+        ImageTransfer.fetch(uri) { |chunk| write_chunk(destination, chunk) }
       rescue ImageTransfer::IncompleteBodyError => e
         raise Thor::Error, "Incomplete image download from #{uri}: #{e.message}"
+      rescue ImageTransfer::InvalidSchemeError
+        raise Thor::Error, 'Image download URL must use HTTP or HTTPS'
+      rescue ImageTransfer::TooManyRedirectsError
+        raise Thor::Error, 'Too many image download redirects'
+      rescue ImageTransfer::InsecureRedirectError
+        raise Thor::Error, 'Image download redirect must use HTTPS'
+      end
+
+      def write_chunk(destination, chunk)
+        if destination.pos + chunk.bytesize > MAX_IMAGE_BYTES
+          raise Thor::Error, "Image download exceeds the #{MAX_IMAGE_BYTES}-byte limit"
+        end
+
+        destination.write(chunk)
       end
 
       def link_image(source, filename, next_suffixes)
