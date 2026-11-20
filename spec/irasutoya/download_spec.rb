@@ -4,7 +4,7 @@ require 'fileutils'
 require 'irasutoya'
 require 'nokogiri'
 require 'stringio'
-require 'terminal_image'
+require 'irasutoya/cli/preview'
 require 'tmpdir'
 
 RSpec.describe 'irasutoya download' do
@@ -36,7 +36,7 @@ RSpec.describe 'irasutoya download' do
 
   it 'saves every image, reports the paths, and skips the preview renderer' do
     allow($stdout).to receive(:tty?).and_return(true)
-    expect(TerminalImage).not_to receive(:show)
+    expect(Irasutoya::Cli::Preview).not_to receive(:show)
     paths = %w[cat.png cat-1.png].map { |name| File.join(directory, name) }
 
     expect { run_download }.to output(paths.map { |path| "Saved: #{path}\n" }.join).to_stdout
@@ -108,6 +108,31 @@ RSpec.describe 'irasutoya download' do
       end.to output("Incomplete image download from #{image_urls.last}: expected 12 bytes, received 5\n").to_stderr
     end.to output("Saved: #{File.join(directory, 'cat.png')}\n").to_stdout
     expect(Dir.children(directory)).to eq(['cat.png'])
+  end
+
+  context 'when the filename reaches the 255-byte component limit' do
+    let(:filename) { "#{'a' * 251}.png" }
+    let(:image_urls) { ["https://example.com/#{filename}", "https://example.com/other/#{filename}"] }
+
+    it 'preserves the first image and shortens the stem to fit the suffix' do
+      paths = [filename, "#{'a' * 249}-1.png"].map { |name| File.join(directory, name) }
+
+      expect { run_download }.to output(paths.map { |path| "Saved: #{path}\n" }.join).to_stdout
+      expect(paths.map { |path| File.binread(path) }).to eq(image_data)
+      expect(Dir.children(directory)).to match_array(paths.map { |path| File.basename(path) })
+    end
+
+    it 'preserves occupied names and shortens the stem further for two-digit suffixes' do
+      FileUtils.mkdir_p(directory)
+      occupied_names = [filename, *(1..9).map { |index| "#{'a' * 249}-#{index}.png" }]
+      occupied_paths = occupied_names.map { |name| File.join(directory, name) }
+      occupied_paths.each { |path| File.binwrite(path, 'original') }
+      paths = [10, 11].map { |index| File.join(directory, "#{'a' * 248}-#{index}.png") }
+
+      expect { run_download }.to output(paths.map { |path| "Saved: #{path}\n" }.join).to_stdout
+      expect(paths.map { |path| File.binread(path) }).to eq(image_data)
+      expect(occupied_paths.map { |path| File.binread(path) }).to all(eq('original'))
+    end
   end
 
   context 'when the illustration page contains no images' do

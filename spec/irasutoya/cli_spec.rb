@@ -51,7 +51,7 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
 
     let(:runner) { Irasutoya::Cli::Runner.new([], {}, shell: Thor::Shell::Basic.new) }
     let(:image_data) { %w[first other] }
-    let(:http) { instance_double(Net::HTTP) }
+    let(:http) { instance_double(Net::HTTP, finish: nil) }
     let(:responses) do
       irasuto.image_urls.zip(image_data).to_h do |url, data|
         response = Net::HTTPOK.new('1.1', '200', 'OK')
@@ -72,7 +72,7 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
 
     before do
       stub_const('Irasutoya::Cli::Runner::MAX_PREVIEW_BYTES', image_data.first.bytesize)
-      allow(Net::HTTP).to receive(:start).with('example.com', 80, use_ssl: false, max_retries: 0).and_yield(http)
+      allow(Net::HTTP).to receive(:start).with('example.com', 80, use_ssl: false, max_retries: 0).and_return(http)
       responses.each { |path, response| allow(http).to receive(:request_get).with(path).and_yield(response) }
       allow(Irasutoya::Cli::Preview).to receive(:show)
     end
@@ -162,9 +162,12 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
       it 'renders an image after a relative redirect without reading the redirect body' do
         redirect = Net::HTTPFound.new('1.1', '302', 'Found')
         redirect['location'] = '/redirected.png'
+        redirect['content-length'] = '10'
         allow(http).to receive(:request_get).with('/test.png').and_yield(redirect)
         expect(redirect).not_to receive(:read_body)
         expect(http).to receive(:request_get).with('/redirected.png').and_yield(responses.fetch('/test.png'))
+        expect(Net::HTTP).to receive(:start).twice.and_return(http)
+        expect(http).to receive(:finish).twice
         expect(Irasutoya::Cli::Preview).to receive(:show).twice
 
         expect do
@@ -310,6 +313,7 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
       shared_examples 'a recoverable detail page failure' do
         let(:missing_url) { 'http://example.com/missing' }
         let(:last_url) { 'http://example.com/last' }
+        let(:warning) { "warn: Could not fetch result page #{missing_url}: #{detail_error.message}" }
 
         before do
           missing_link = Irasutoya::IrasutoLink.new(title: 'missing', show_url: missing_url)
@@ -325,20 +329,28 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
         it 'displays successful results in order and reports the failed URL once' do
           last_output = expected.sub(irasuto.url, last_url).sub('Title:       title', 'Title:       last')
           expect { subject }.to output(expected + last_output).to_stdout
-            .and output("warn: Could not fetch result page #{missing_url}: #{detail_error.message}\n").to_stderr
+            .and output(warning + "\n").to_stderr
         end
       end
 
       context 'when a result page returns 404' do
         let(:detail_error) { OpenURI::HTTPError.new('404 Not Found', nil) }
 
-        include_examples 'a recoverable detail page failure'
+        it_behaves_like 'a recoverable detail page failure'
+      end
+
+      context 'when the failed URL and error message contain terminal controls' do
+        it_behaves_like 'a recoverable detail page failure' do
+          let(:missing_url) { "http://example.com/missing\a" }
+          let(:detail_error) { OpenURI::HTTPError.new("404 Not Found\e[2J\r\n", nil) }
+          let(:warning) { 'warn: Could not fetch result page http://example.com/missing\x07: 404 Not Found\x1B[2J\x0D\x0A' }
+        end
       end
 
       context 'when reading a result page times out' do
         let(:detail_error) { Net::ReadTimeout.new }
 
-        include_examples 'a recoverable detail page failure'
+        it_behaves_like 'a recoverable detail page failure'
       end
     end
   end

@@ -109,7 +109,8 @@ RSpec.describe 'ANSI image previews' do
       result = Irasutoya::Irasuto.new(url: 'http://example.com/', title: 'Preview', description: '', image_urls: urls)
       allow(Irasutoya::Irasuto).to receive(:random).and_return(result)
       http = instance_double(Net::HTTP)
-      allow(Net::HTTP).to receive(:start).and_yield(http)
+      expect(Net::HTTP).to receive(:start).with('example.com', 80, use_ssl: false, max_retries: 0).once.and_return(http)
+      expect(http).to receive(:finish).once
       urls.zip([rejected_png, valid_png]).each do |url, data|
         response = Net::HTTPOK.new('1.1', '200', 'OK')
         allow(response).to receive(:read_body).and_yield(data)
