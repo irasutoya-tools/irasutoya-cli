@@ -232,10 +232,16 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
             end
 
             warning = "warn: Could not preview #{irasuto.image_urls.first}: #{message}\n"
+            next_output = <<~EXPECTED
+              Page URL:    #{next_result.url}
+              Title:       #{next_result.title}
+              Description: #{next_result.description}
+              Image URL:   #{next_result.image_urls.first}
+            EXPECTED
             expect do
               allow($stdout).to receive(:tty?).and_return(true)
               subject
-            end.to output(/#{Regexp.escape(expected + warning)}.*Title:       Next result/m).to_stdout
+            end.to output(expected + warning + next_output).to_stdout
 
             expect(Dir.children(ENV.fetch('TMPDIR'))).to be_empty
           end
@@ -252,6 +258,20 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
           include_examples 'a recoverable preview failure'
         end
 
+        context 'when reading the first image body times out' do
+          let(:timeout) { Net::ReadTimeout.new }
+          let(:message) { timeout.message }
+
+          before do
+            allow(transfer).to receive(:fetch).with(URI.parse(irasuto.image_urls.first)) do |&read_chunk|
+              read_chunk.call('pa')
+              raise timeout
+            end
+          end
+
+          include_examples 'a recoverable preview failure'
+        end
+
         [TerminalImage::UnsupportedFormat, TerminalImage::UnsupportedTerminal].each do |error_class|
           context "when rendering raises #{error_class}" do
             let(:message) { 'preview failed' }
@@ -263,7 +283,7 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
         end
       end
 
-      context 'when a result page returns 404' do
+      shared_examples 'a recoverable detail page failure' do
         let(:missing_url) { 'http://example.com/missing' }
         let(:last_url) { 'http://example.com/last' }
 
@@ -274,16 +294,27 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
             url: last_url, title: 'last', description: 'description', image_urls: irasuto.image_urls
           )
           allow(Irasutoya::Irasuto).to receive(:search).and_return([irasuto_link, missing_link, last_link])
-          allow(missing_link).to receive(:fetch_irasuto)
-            .and_raise(OpenURI::HTTPError.new('404 Not Found', nil))
+          allow(missing_link).to receive(:fetch_irasuto).and_raise(detail_error)
           allow(last_link).to receive(:fetch_irasuto).and_return(last_result)
         end
 
         it 'displays successful results in order and reports the failed URL once' do
           last_output = expected.sub(irasuto.url, last_url).sub('Title:       title', 'Title:       last')
           expect { subject }.to output(expected + last_output).to_stdout
-            .and output("warn: Could not fetch result page #{missing_url}: 404 Not Found\n").to_stderr
+            .and output("warn: Could not fetch result page #{missing_url}: #{detail_error.message}\n").to_stderr
         end
+      end
+
+      context 'when a result page returns 404' do
+        let(:detail_error) { OpenURI::HTTPError.new('404 Not Found', nil) }
+
+        include_examples 'a recoverable detail page failure'
+      end
+
+      context 'when reading a result page times out' do
+        let(:detail_error) { Net::ReadTimeout.new }
+
+        include_examples 'a recoverable detail page failure'
       end
     end
   end
