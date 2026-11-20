@@ -20,18 +20,20 @@ module Irasutoya
       desc 'random', 'Gives you random irasutoya image'
       def random
         require 'irasutoya'
-        display(Irasutoya::Irasuto.random)
+        with_preview_sessions { display(Irasutoya::Irasuto.random) }
       end
 
       desc 'search {query}', 'Shows images from up to three result pages. Each page can contain multiple images.'
       def search(query)
         require 'irasutoya'
-        Irasutoya::Irasuto
-          .search(query:)
-          .take(3)
-          .lazy
-          .filter_map(&method(:fetch_result))
-          .each(&method(:display))
+        with_preview_sessions do
+          Irasutoya::Irasuto
+            .search(query:)
+            .take(3)
+            .lazy
+            .filter_map(&method(:fetch_result))
+            .each(&method(:display))
+        end
       end
 
       desc 'download PAGE_URL', 'Saves all images from an illustration page'
@@ -49,7 +51,7 @@ module Irasutoya
       def fetch_result(link)
         link.fetch_irasuto
       rescue OpenURI::HTTPError, Timeout::Error => e
-        warn "warn: Could not fetch result page #{link.show_url}: #{e.message}"
+        warn "warn: Could not fetch result page #{escape_controls(link.show_url)}: #{escape_controls(e.message)}"
         nil
       end
 
@@ -85,8 +87,15 @@ module Irasutoya
         say "warn: Could not preview #{image_url}: #{e.message}", :yellow
       end
 
+      def with_preview_sessions
+        ImageTransfer.with_sessions do |transfer|
+          @preview_transfer = transfer
+          yield
+        end
+      end
+
       def download_preview(uri, file)
-        ImageTransfer.fetch(uri) do |chunk|
+        @preview_transfer.fetch(uri) do |chunk|
           raise PreviewTooLarge if file.pos + chunk.bytesize > MAX_PREVIEW_BYTES
 
           file.write(chunk)

@@ -56,8 +56,7 @@ module Irasutoya
 
       def link_image(source, filename, next_suffixes)
         next_suffixes[filename].step do |index|
-          path = File.join(@directory, suffixed_filename(filename, index))
-          File.link(source, path)
+          path = index.zero? ? link_path(source, filename) : link_with_suffix(source, filename, index)
           next_suffixes[filename] = index + 1
           return path
         rescue Errno::EEXIST
@@ -65,11 +64,25 @@ module Irasutoya
         end
       end
 
-      def suffixed_filename(filename, index)
-        return filename if index.zero?
-
+      def link_with_suffix(source, filename, index)
         extension = File.extname(filename)
-        "#{File.basename(filename, extension)}-#{index}#{extension}"
+        stem = File.basename(filename, extension)
+        link_with_stem(source, stem, "-#{index}#{extension}")
+      end
+
+      def link_with_stem(source, stem, ending)
+        link_path(source, "#{stem}#{ending}")
+      rescue Errno::ENAMETOOLONG
+        raise if stem.empty?
+
+        stem = stem[0...-1]
+        retry
+      end
+
+      def link_path(source, filename)
+        path = File.join(@directory, filename)
+        File.link(source, path)
+        path
       end
     end
   end

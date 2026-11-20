@@ -2,11 +2,11 @@
 
 RSpec.describe Irasutoya::Cli::ImageTransfer do
   let(:headers) { { 'Accept-Encoding' => 'identity' } }
-  let(:http) { instance_double(Net::HTTP) }
+  let(:http) { instance_double(Net::HTTP, finish: nil) }
   let(:url) { URI('https://example.com/images/start.png') }
 
   before do
-    allow(Net::HTTP).to receive(:start).with('example.com', 443, use_ssl: true, max_retries: 0).and_yield(http)
+    allow(Net::HTTP).to receive(:start).with('example.com', 443, use_ssl: true, max_retries: 0).and_return(http)
   end
 
   it 'resolves a relative redirect and yields only the successful response body' do

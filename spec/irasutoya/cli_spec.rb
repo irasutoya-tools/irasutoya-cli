@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'irasutoya'
+require 'net/http'
 require 'open-uri'
 require 'terminal_image'
 require 'tmpdir'
@@ -49,7 +50,15 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
 
     let(:runner) { Irasutoya::Cli::Runner.new([], {}, shell: Thor::Shell::Basic.new) }
     let(:image_data) { %w[first other] }
-    let(:transfer) { Irasutoya::Cli::ImageTransfer }
+    let(:headers) { { 'Accept-Encoding' => 'identity' } }
+    let(:http) { instance_double(Net::HTTP, finish: nil) }
+    let(:responses) do
+      irasuto.image_urls.zip(image_data).to_h do |url, data|
+        response = Net::HTTPOK.new('1.1', '200', 'OK')
+        allow(response).to receive(:read_body).and_yield(data.byteslice(0, 2)).and_yield(data.byteslice(2..))
+        [URI.parse(url).request_uri, response]
+      end
+    end
 
     around do |example|
       original_tmpdir = ENV['TMPDIR']
@@ -63,16 +72,14 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
 
     before do
       stub_const('Irasutoya::Cli::Runner::MAX_PREVIEW_BYTES', image_data.first.bytesize)
-      irasuto.image_urls.zip(image_data).each do |url, data|
-        allow(transfer).to receive(:fetch).with(URI.parse(url)).and_yield(data.byteslice(0, 2))
-          .and_yield(data.byteslice(2..))
-      end
+      allow(Net::HTTP).to receive(:start).with('example.com', 80, use_ssl: false, max_retries: 0).and_return(http)
+      responses.each { |path, response| allow(http).to receive(:request_get).with(path, headers).and_yield(response) }
       allow(TerminalImage).to receive(:show)
     end
 
     shared_examples_for 'a command displays irasuto' do
       it 'prints metadata without downloading or rendering when stdout is redirected' do
-        expect(transfer).not_to receive(:fetch)
+        expect(Net::HTTP).not_to receive(:start)
         expect(TerminalImage).not_to receive(:show)
 
         expect do
@@ -102,7 +109,7 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
 
         it 'escapes controls in image URLs when stdout is redirected' do
           allow(irasuto).to receive(:image_urls).and_return(["http://example.com/test.png\x7f"])
-          expect(transfer).not_to receive(:fetch)
+          expect(Net::HTTP).not_to receive(:start)
           expected_output = escaped_metadata.sub("test.png\n", "test.png\\x7F\n")
 
           expect do
@@ -133,7 +140,9 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
       end
 
       it 'stops reading an oversized image without Content-Length and renders the next image' do
-        allow(transfer).to receive(:fetch).with(URI.parse(irasuto.image_urls.first)) do |&read_chunk|
+        oversized = Net::HTTPOK.new('1.1', '200', 'OK')
+        allow(http).to receive(:request_get).with('/test.png', headers).and_yield(oversized)
+        allow(oversized).to receive(:read_body) do |&read_chunk|
           read_chunk.call(image_data.first)
           read_chunk.call('x')
           raise 'Download continued past the byte limit'
@@ -150,9 +159,25 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
         expect(Dir.children(ENV.fetch('TMPDIR'))).to be_empty
       end
 
+      it 'renders an image after a relative redirect without reading the redirect body' do
+        redirect = Net::HTTPFound.new('1.1', '302', 'Found')
+        redirect['location'] = '/redirected.png'
+        redirect['content-length'] = '10'
+        allow(http).to receive(:request_get).with('/test.png', headers).and_yield(redirect)
+        expect(redirect).not_to receive(:read_body)
+        expect(http).to receive(:request_get).with('/redirected.png', headers).and_yield(responses.fetch('/test.png'))
+        expect(Net::HTTP).to receive(:start).twice.and_return(http)
+        expect(http).to receive(:finish).twice
+        expect(TerminalImage).to receive(:show).twice
+
+        expect do
+          allow($stdout).to receive(:tty?).and_return(true)
+          subject
+        end.to output(expected).to_stdout
+      end
+
       it 'removes the temporary file when downloading fails' do
-        allow(transfer).to receive(:fetch).with(URI.parse(irasuto.image_urls.first))
-          .and_raise(IOError, 'download failed')
+        allow(http).to receive(:request_get).with('/test.png', headers).and_raise(IOError, 'download failed')
 
         allow($stdout).to receive(:tty?).and_return(true)
         expect { subject }.to raise_error(IOError, 'download failed')
@@ -222,7 +247,9 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
         before do
           next_link = instance_double(Irasutoya::IrasutoLink, fetch_irasuto: next_result)
           allow(Irasutoya::Irasuto).to receive(:search).and_return([irasuto_link, next_link])
-          allow(transfer).to receive(:fetch).with(URI.parse(next_result.image_urls.first)).and_yield('next')
+          next_response = Net::HTTPOK.new('1.1', '200', 'OK')
+          allow(next_response).to receive(:read_body).and_yield('next')
+          allow(http).to receive(:request_get).with('/next.png', headers).and_yield(next_response)
         end
 
         shared_examples 'a recoverable preview failure' do
@@ -251,8 +278,8 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
           let(:message) { '404 "Not Found"' }
 
           before do
-            allow(transfer).to receive(:fetch).with(URI.parse(irasuto.image_urls.first))
-              .and_raise(transfer::ResponseError, message)
+            missing = Net::HTTPNotFound.new('1.1', '404', 'Not Found')
+            allow(http).to receive(:request_get).with('/test.png', headers).and_yield(missing)
           end
 
           include_examples 'a recoverable preview failure'
@@ -263,7 +290,7 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
           let(:message) { timeout.message }
 
           before do
-            allow(transfer).to receive(:fetch).with(URI.parse(irasuto.image_urls.first)) do |&read_chunk|
+            allow(responses.fetch('/test.png')).to receive(:read_body) do |&read_chunk|
               read_chunk.call('pa')
               raise timeout
             end
@@ -286,6 +313,7 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
       shared_examples 'a recoverable detail page failure' do
         let(:missing_url) { 'http://example.com/missing' }
         let(:last_url) { 'http://example.com/last' }
+        let(:warning) { "warn: Could not fetch result page #{missing_url}: #{detail_error.message}" }
 
         before do
           missing_link = Irasutoya::IrasutoLink.new(title: 'missing', show_url: missing_url)
@@ -301,20 +329,28 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
         it 'displays successful results in order and reports the failed URL once' do
           last_output = expected.sub(irasuto.url, last_url).sub('Title:       title', 'Title:       last')
           expect { subject }.to output(expected + last_output).to_stdout
-            .and output("warn: Could not fetch result page #{missing_url}: #{detail_error.message}\n").to_stderr
+            .and output(warning + "\n").to_stderr
         end
       end
 
       context 'when a result page returns 404' do
         let(:detail_error) { OpenURI::HTTPError.new('404 Not Found', nil) }
 
-        include_examples 'a recoverable detail page failure'
+        it_behaves_like 'a recoverable detail page failure'
+      end
+
+      context 'when the failed URL and error message contain terminal controls' do
+        it_behaves_like 'a recoverable detail page failure' do
+          let(:missing_url) { "http://example.com/missing\a" }
+          let(:detail_error) { OpenURI::HTTPError.new("404 Not Found\e[2J\r\n", nil) }
+          let(:warning) { 'warn: Could not fetch result page http://example.com/missing\x07: 404 Not Found\x1B[2J\x0D\x0A' }
+        end
       end
 
       context 'when reading a result page times out' do
         let(:detail_error) { Net::ReadTimeout.new }
 
-        include_examples 'a recoverable detail page failure'
+        it_behaves_like 'a recoverable detail page failure'
       end
     end
   end
