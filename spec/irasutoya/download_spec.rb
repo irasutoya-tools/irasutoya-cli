@@ -4,7 +4,7 @@ require 'fileutils'
 require 'irasutoya'
 require 'irasutoya/cli/download'
 require 'nokogiri'
-require 'terminal_image'
+require 'irasutoya/cli/preview'
 require 'tmpdir'
 
 RSpec.describe 'irasutoya download' do
@@ -38,7 +38,7 @@ RSpec.describe 'irasutoya download' do
 
   it 'saves every image, reports the paths, and skips the preview renderer' do
     allow($stdout).to receive(:tty?).and_return(true)
-    expect(TerminalImage).not_to receive(:show)
+    expect(Irasutoya::Cli::Preview).not_to receive(:show)
     paths = %w[cat.png cat-1.png].map { |name| File.join(directory, name) }
 
     expect { run_download }.to output(paths.map { |path| "Saved: #{path}\n" }.join).to_stdout
@@ -170,6 +170,22 @@ RSpec.describe 'irasutoya download' do
     end.to output("Could not fetch illustration page #{page_url}: 404 Not Found\n").to_stderr
       .and output('').to_stdout
     expect(File.exist?(File.dirname(directory))).to be(false)
+  end
+
+  it 'rejects a complete partial response without saving or announcing the image' do
+    response = Net::HTTPPartialContent.new('1.1', '206', 'Partial Content')
+    response['content-length'] = '5'
+    response['content-range'] = 'bytes 5-9/12'
+    allow(http).to receive(:request_get).with(URI.parse(image_urls.first).request_uri, request_headers)
+                                       .and_yield(response)
+    expect(response).not_to receive(:read_body)
+
+    expect do
+      expect do
+        expect { run_download }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      end.to output("Incomplete image download from #{image_urls.first}: HTTP 206 Partial Content\n").to_stderr
+    end.to output('').to_stdout
+    expect(Dir.children(directory)).to be_empty
   end
 
   it 'uses chunked framing when both Transfer-Encoding and Content-Length are present' do

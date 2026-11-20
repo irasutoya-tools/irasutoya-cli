@@ -58,8 +58,8 @@ module Irasutoya
       def download_image(uri, file, redirects_left = MAX_REDIRECTS)
         raise Thor::Error, 'Image download URL must use HTTP or HTTPS' unless uri.is_a?(URI::HTTP)
 
-        redirect = stream_image(uri, file)
-        return unless redirect
+        return unless (redirect = stream_image(uri, file))
+
         raise Thor::Error, 'Too many image download redirects' if redirects_left.zero?
 
         location = uri + redirect
@@ -75,6 +75,8 @@ module Irasutoya
         Net::HTTP.start(uri.hostname, uri.port, **options) do |http|
           http.request_get(uri.request_uri, 'Accept-Encoding' => 'identity') do |response|
             return response.fetch('location') if %w[301 302 303 307 308].include?(response.code)
+
+            raise EOFError, 'HTTP 206 Partial Content' if response.code == '206'
 
             response.value
             write_image(response, file)
