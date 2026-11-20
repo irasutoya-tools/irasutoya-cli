@@ -2,6 +2,7 @@
 
 require 'open-uri'
 require 'tempfile'
+require 'timeout'
 require 'irasutoya/cli/preview_sessions'
 require 'irasutoya/cli/version'
 require 'thor'
@@ -32,6 +33,7 @@ module Irasutoya
           Irasutoya::Irasuto
             .search(query:)
             .take(3)
+            .lazy
             .filter_map(&method(:fetch_result))
             .each(&method(:display))
         end
@@ -40,15 +42,18 @@ module Irasutoya
       desc 'download PAGE_URL', 'Saves all images from an illustration page'
       method_option :output, type: :string, required: true, banner: 'DIR'
       def download(page_url)
+        directory = options[:output]
+        raise Thor::Error, 'Provide an output directory with --output.' if directory.empty?
+
         require 'irasutoya/cli/download'
-        Download.new(page_url, options[:output]).save { |path| say "Saved: #{path}" }
+        Download.new(page_url, directory).save { |path| say "Saved: #{path}" }
       end
 
       private
 
       def fetch_result(link)
         link.fetch_irasuto
-      rescue OpenURI::HTTPError => e
+      rescue OpenURI::HTTPError, Timeout::Error => e
         warn "warn: Could not fetch result page #{link.show_url}: #{e.message}"
         nil
       end
@@ -78,12 +83,12 @@ module Irasutoya
 
         Tempfile.create(binmode: true) do |file|
           download_preview(URI.parse(image_url), file)
-          file.rewind
-          TerminalImage.show(file)
+          TerminalImage.show(file.tap(&:rewind))
         end
       rescue PreviewTooLarge
         say "warn: Image preview exceeds the #{MAX_PREVIEW_BYTES}-byte limit", :yellow
-      rescue Net::HTTPExceptions, TerminalImage::UnsupportedFormat, TerminalImage::UnsupportedTerminal => e
+      rescue Net::HTTPExceptions, Net::OpenTimeout, Net::ReadTimeout, Net::WriteTimeout,
+             TerminalImage::UnsupportedFormat, TerminalImage::UnsupportedTerminal => e
         say "warn: Could not preview #{image_url}: #{e.message}", :yellow
       end
 
