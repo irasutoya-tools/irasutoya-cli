@@ -72,6 +72,18 @@ RSpec.describe 'irasutoya download' do
     expect(Dir.children(directory)).to eq(['cat.png'])
   end
 
+  it 'rejects a complete partial response without saving or announcing the image' do
+    headers = { 'content-length' => '5', 'content-range' => 'bytes 5-9/12' }
+    stub_image_response(URI.parse(image_urls.first), 'short', headers, status: ['206', 'Partial Content'])
+
+    expect do
+      expect do
+        expect { run_download }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      end.to output("Incomplete image download from #{image_urls.first}: HTTP 206 Partial Content\n").to_stderr
+    end.to output('').to_stdout
+    expect(Dir.children(directory)).to be_empty
+  end
+
   ['https://example.com/cat.html', 'https://www.irasutoya.com/cat photo.html'].each do |url|
     it "rejects #{url.inspect} before fetching the page or creating the output directory" do
       expect(Irasutoya::IrasutoLink).not_to receive(:new)
@@ -89,9 +101,10 @@ RSpec.describe 'irasutoya download' do
     Irasutoya::Cli::Runner.start(['download', url, '--output', directory])
   end
 
-  def stub_image_response(uri, data, headers)
+  def stub_image_response(uri, data, headers, status: ['200', 'OK'])
     source = StringIO.new(data)
     OpenURI::Meta.init(source)
+    source.status = status
     headers.each { |name, value| source.meta_add_field(name, value) }
     allow(uri).to receive(:open).and_yield(source)
   end

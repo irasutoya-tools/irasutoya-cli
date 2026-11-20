@@ -49,6 +49,8 @@ module Irasutoya
 
       def copy_image(uri, file)
         uri.open('Accept-Encoding' => 'identity') do |source|
+          raise EOFError, 'HTTP 206 Partial Content' if source.status&.first == '206'
+
           length = source.meta['content-length'] unless source.meta.key?('transfer-encoding')
           bytes = IO.copy_stream(source, file)
           raise EOFError, "expected #{length} bytes, received #{bytes}" if length && bytes < length.to_i
