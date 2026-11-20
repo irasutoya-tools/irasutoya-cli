@@ -12,6 +12,7 @@ RSpec.describe 'irasutoya download' do
   let(:image_urls) { %w[https://example.com/cat.png https://example.com/other/cat.png?size=large] }
   let(:image_data) { ["\x89PNG".b, "\xFF\xFE".b] }
   let(:directory) { File.join(@workspace, 'nested', 'images') }
+  let(:link) { Irasutoya::IrasutoLink.new(title: nil, show_url: page_url) }
 
   around do |example|
     Dir.mktmpdir do |workspace|
@@ -23,7 +24,6 @@ RSpec.describe 'irasutoya download' do
   before do
     images = image_urls.map { |url| %(<img src="#{url}">) }.join
     page = Nokogiri::HTML("<div class='entry'>#{images}</div>")
-    link = Irasutoya::IrasutoLink.new(title: nil, show_url: page_url)
     allow(Irasutoya::IrasutoLink).to receive(:new).with(title: nil, show_url: page_url).and_return(link)
     allow(link).to receive(:fetch_page_and_parse).with(page_url).and_return(page)
     allow(URI).to receive(:parse).and_call_original
@@ -54,10 +54,11 @@ RSpec.describe 'irasutoya download' do
     expect(paths.map { |path| File.binread(path) }).to eq(['original', 'also original', *image_data])
   end
 
-  it 'keeps completed images and removes the temporary file when a download fails' do
-    allow(URI.parse(image_urls.last)).to receive(:open).and_raise(IOError, 'download failed')
+  it 'keeps completed images and removes the temporary file when an image request fails' do
+    failure = OpenURI::HTTPError.new('404 Not Found', nil)
+    allow(URI.parse(image_urls.last)).to receive(:open).and_raise(failure)
 
-    expect { run_download }.to raise_error(IOError, 'download failed')
+    expect { run_download }.to raise_error(OpenURI::HTTPError, '404 Not Found')
     expect(Dir.children(directory)).to eq(['cat.png'])
   end
 
@@ -70,6 +71,16 @@ RSpec.describe 'irasutoya download' do
       end.to output("Incomplete image download from #{image_urls.last}: expected 12 bytes, received 5\n").to_stderr
     end.to output("Saved: #{File.join(directory, 'cat.png')}\n").to_stdout
     expect(Dir.children(directory)).to eq(['cat.png'])
+  end
+
+  it 'reports a missing illustration page once and exits before creating the destination' do
+    allow(link).to receive(:fetch_irasuto).and_raise(OpenURI::HTTPError.new('404 Not Found', nil))
+
+    expect do
+      expect { run_download }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+    end.to output("Could not fetch illustration page #{page_url}: 404 Not Found\n").to_stderr
+      .and output('').to_stdout
+    expect(File.exist?(File.dirname(directory))).to be(false)
   end
 
   ['https://example.com/cat.html', 'https://www.irasutoya.com/cat photo.html'].each do |url|

@@ -31,9 +31,16 @@ module Irasutoya
           raise Thor::Error, 'Provide an Irasutoya illustration page URL printed by search or random.'
         end
 
-        Irasutoya::IrasutoLink.new(title: nil, show_url: @page_url).fetch_irasuto.image_urls
+        link = Irasutoya::IrasutoLink.new(title: nil, show_url: @page_url)
+        fetch_page(link).image_urls
       rescue URI::InvalidURIError
         raise Thor::Error, 'Provide an Irasutoya illustration page URL printed by search or random.'
+      end
+
+      def fetch_page(link)
+        link.fetch_irasuto
+      rescue OpenURI::HTTPError => e
+        raise Thor::Error, "Could not fetch illustration page #{@page_url}: #{e.message}"
       end
 
       def save_image(url)
