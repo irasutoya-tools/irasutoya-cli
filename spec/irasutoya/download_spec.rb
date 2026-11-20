@@ -85,6 +85,18 @@ RSpec.describe 'irasutoya download' do
     end
   end
 
+  [['--output', ''], ['--output=']].each do |output_args|
+    it "rejects #{output_args.map(&:inspect).join(' ')} before fetching the page" do
+      expect(Irasutoya::IrasutoLink).not_to receive(:new)
+
+      expect do
+        expect do
+          Irasutoya::Cli::Runner.start(['download', page_url, *output_args])
+        end.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      end.to output("Provide an output directory with --output.\n").to_stderr
+    end
+  end
+
   def run_download(url = page_url)
     Irasutoya::Cli::Runner.start(['download', url, '--output', directory])
   end
