@@ -76,12 +76,12 @@ module Irasutoya
 
         Tempfile.create(binmode: true) do |file|
           download_preview(URI.parse(image_url), file)
-          file.rewind
-          TerminalImage.show(file)
+          TerminalImage.show(file.tap(&:rewind))
         end
       rescue PreviewTooLarge
         say "warn: Image preview exceeds the #{MAX_PREVIEW_BYTES}-byte limit", :yellow
-      rescue Net::HTTPExceptions, TerminalImage::UnsupportedFormat, TerminalImage::UnsupportedTerminal => e
+      rescue Net::HTTPExceptions, Net::OpenTimeout, Net::ReadTimeout, Net::WriteTimeout,
+             TerminalImage::UnsupportedFormat, TerminalImage::UnsupportedTerminal => e
         say "warn: Could not preview #{image_url}: #{e.message}", :yellow
       end
 
