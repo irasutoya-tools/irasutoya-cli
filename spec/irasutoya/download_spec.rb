@@ -2,8 +2,8 @@
 
 require 'fileutils'
 require 'irasutoya'
+require 'irasutoya/cli/download'
 require 'nokogiri'
-require 'net/http'
 require 'socket'
 require 'terminal_image'
 require 'tmpdir'
@@ -13,6 +13,8 @@ RSpec.describe 'irasutoya download' do
   let(:image_urls) { %w[https://example.com/cat.png https://example.com/other/cat.png?size=large] }
   let(:image_data) { ["\x89PNG".b, "\xFF\xFE".b] }
   let(:directory) { File.join(@workspace, 'nested', 'images') }
+  let(:http) { instance_double(Net::HTTP) }
+  let(:request_headers) { { 'Accept-Encoding' => 'identity' } }
 
   around do |example|
     Dir.mktmpdir do |workspace|
@@ -69,6 +71,7 @@ RSpec.describe 'irasutoya download' do
   end
 
   it 'preserves existing files and skips occupied suffixes' do
+    stub_const('Irasutoya::Cli::Download::MAX_IMAGE_BYTES', image_data.first.bytesize)
     FileUtils.mkdir_p(directory)
     File.binwrite(File.join(directory, 'cat.png'), 'original')
     File.binwrite(File.join(directory, 'cat-1.png'), 'also original')
@@ -78,32 +81,70 @@ RSpec.describe 'irasutoya download' do
     expect(paths.map { |path| File.binread(path) }).to eq(['original', 'also original', *image_data])
   end
 
-  it 'follows a relative redirect without saving its body' do
-    redirect = Net::HTTPFound.new('1.1', '302', 'Found')
-    redirect['location'] = '/redirected.png'
-    response = Net::HTTPOK.new('1.1', '200', 'OK')
-    allow(response).to receive(:read_body).and_yield(image_data.first)
-    allow(@http).to receive(:request_get).with('/cat.png', 'Accept-Encoding' => 'identity').and_yield(redirect)
-    allow(@http).to receive(:request_get).with('/redirected.png', 'Accept-Encoding' => 'identity').and_yield(response)
-    expect(redirect).not_to receive(:read_body)
+  it 'keeps completed images and removes the temporary file when a download fails' do
+    response = stub_image(image_urls.last, image_data.last)
+    allow(response).to receive(:read_body) do |&write_chunk|
+      write_chunk.call('partial')
+      raise IOError, 'download failed'
+    end
+
+    expect do
+      expect { run_download }.to raise_error(IOError, 'download failed')
+    end.to output("Saved: #{File.join(directory, 'cat.png')}\n").to_stdout
+    expect(Dir.children(directory)).to eq(['cat.png'])
+  end
+
+  it 'follows up to 5 redirects' do
+    stub_redirect_chain(5)
 
     expect { run_download }.to output(/cat\.png\n.*cat-1\.png\n/m).to_stdout
     expect(File.binread(File.join(directory, 'cat.png'))).to eq(image_data.first)
   end
 
-  it 'follows up to 64 redirects' do
-    stub_redirect_chain(64)
-
-    expect { run_download }.to output(/cat\.png\n.*cat-1\.png\n/m).to_stdout
-    expect(File.binread(File.join(directory, 'cat.png'))).to eq(image_data.first)
-  end
-
-  it 'rejects a 65th redirect and removes the temporary file' do
-    stub_redirect_chain(65)
+  it 'rejects a sixth redirect and removes the temporary file' do
+    stub_redirect_chain(6)
 
     expect do
       expect { run_download }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
     end.to output("Too many image download redirects\n").to_stderr
+    expect(Dir.children(directory)).to be_empty
+  end
+
+  it 'stops reading an oversized response without Content-Length and removes its temporary file' do
+    stub_const('Irasutoya::Cli::Download::MAX_IMAGE_BYTES', image_data.first.bytesize)
+    response = stub_image(image_urls.last, image_data.last)
+    allow(response).to receive(:read_body) do |&receive_chunk|
+      receive_chunk.call(image_data.first)
+      receive_chunk.call('x')
+      raise 'Read past the download limit'
+    end
+
+    expect do
+      expect { run_download }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+    end.to output("Image download exceeds the #{image_data.first.bytesize}-byte limit\n").to_stderr
+    expect(Dir.children(directory)).to eq(['cat.png'])
+    expect(File.binread(File.join(directory, 'cat.png'))).to eq(image_data.first)
+  end
+
+  it 'follows a relative redirect without reading its body' do
+    redirect = Net::HTTPFound.new('1.1', '302', 'Found')
+    redirect['location'] = '/redirected.png'
+    expect(redirect).not_to receive(:read_body)
+    allow(http).to receive(:request_get).with('/cat.png', request_headers).and_yield(redirect)
+    stub_image('https://example.com/redirected.png', image_data.first)
+
+    expect { run_download }.to output(/cat\.png\n.*cat-1\.png\n/m).to_stdout
+    expect(File.binread(File.join(directory, 'cat.png'))).to eq(image_data.first)
+  end
+
+  it 'rejects an HTTPS redirect to HTTP and removes the temporary file' do
+    redirect = Net::HTTPFound.new('1.1', '302', 'Found')
+    redirect['location'] = 'http://example.com/redirected.png'
+    allow(http).to receive(:request_get).with('/cat.png', request_headers).and_yield(redirect)
+
+    expect do
+      expect { run_download }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+    end.to output("Image download redirect must use HTTPS\n").to_stderr
     expect(Dir.children(directory)).to be_empty
   end
 
@@ -118,14 +159,8 @@ RSpec.describe 'irasutoya download' do
   end
 
   it 'reports a truncated image URL and only announces and keeps the completed image' do
-    response = Net::HTTPOK.new('1.1', '200', 'OK')
+    response = stub_image(image_urls.last, 'short')
     response['content-length'] = '12'
-    allow(response).to receive(:read_body) do |&write_chunk|
-      write_chunk.call('short')
-      raise EOFError, 'end of file reached'
-    end
-    allow(@http).to receive(:request_get)
-      .with('/other/cat.png?size=large', 'Accept-Encoding' => 'identity').and_yield(response)
 
     expect do
       expect do
@@ -135,18 +170,13 @@ RSpec.describe 'irasutoya download' do
     expect(Dir.children(directory)).to eq(['cat.png'])
   end
 
-  it 'keeps completed images and removes the temporary file when a download fails' do
-    response = Net::HTTPOK.new('1.1', '200', 'OK')
-    allow(response).to receive(:read_body) do |&write_chunk|
-      write_chunk.call('partial')
-      raise IOError, 'download failed'
-    end
-    allow(@http).to receive(:request_get).with('/other/cat.png?size=large', 'Accept-Encoding' => 'identity').and_yield(response)
+  it 'uses chunked framing when both Transfer-Encoding and Content-Length are present' do
+    response = stub_image(image_urls.last, image_data.last)
+    response['transfer-encoding'] = 'chunked'
+    response['content-length'] = '12'
 
-    expect do
-      expect { run_download }.to raise_error(IOError, 'download failed')
-    end.to output("Saved: #{File.join(directory, 'cat.png')}\n").to_stdout
-    expect(Dir.children(directory)).to eq(['cat.png'])
+    expect { run_download }.to output(/cat\.png\n.*cat-1\.png\n/m).to_stdout
+    expect(File.binread(File.join(directory, 'cat-1.png'))).to eq(image_data.last)
   end
 
   context 'with an HTTP server' do
@@ -270,21 +300,24 @@ RSpec.describe 'irasutoya download' do
     paths.each_cons(2) do |path, location|
       redirect = Net::HTTPFound.new('1.1', '302', 'Found')
       redirect['location'] = location
-      allow(@http).to receive(:request_get).with(path, 'Accept-Encoding' => 'identity').and_yield(redirect)
+      allow(http).to receive(:request_get).with(path, request_headers).and_yield(redirect)
     end
-    response = Net::HTTPOK.new('1.1', '200', 'OK')
-    allow(response).to receive(:read_body).and_yield(image_data.first)
-    allow(@http).to receive(:request_get).with(paths.last, 'Accept-Encoding' => 'identity').and_yield(response)
+    stub_image("https://example.com#{paths.last}", image_data.first)
   end
 
   def stub_images
-    @http = instance_double(Net::HTTP)
-    allow(Net::HTTP).to receive(:start)
-      .with('example.com', 443, use_ssl: true, max_retries: 0, ignore_eof: false).and_yield(@http)
+    allow(Net::HTTP).to receive(:start).with('example.com', 443, use_ssl: true, max_retries: 0,
+                                           ignore_eof: false).and_yield(http)
     image_urls.zip(image_data).each do |url, data|
-      response = Net::HTTPOK.new('1.1', '200', 'OK')
-      allow(response).to receive(:read_body).and_yield(data)
-      allow(@http).to receive(:request_get).with(URI.parse(url).request_uri, 'Accept-Encoding' => 'identity').and_yield(response)
+      response = stub_image(url, data)
+      response['content-length'] = data.bytesize.to_s if url == image_urls.first
     end
+  end
+
+  def stub_image(url, data)
+    response = Net::HTTPOK.new('1.1', '200', 'OK')
+    allow(response).to receive(:read_body).and_yield(data)
+    allow(http).to receive(:request_get).with(URI.parse(url).request_uri, request_headers).and_yield(response)
+    response
   end
 end

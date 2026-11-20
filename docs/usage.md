@@ -26,6 +26,30 @@ irasutoya search '白い猫' > results.txt
 See [Installation](../README.md#installation) for terminal and renderer
 requirements.
 
+### JSON Lines output
+
+Use `--jsonl` with `search` or `random` to write one JSON object per
+illustration page to standard output. This mode skips previews even in a
+terminal. Each object has four fields:
+
+| Field | Type | Contents |
+| --- | --- | --- |
+| `page_url` | string | Illustration page URL accepted by `download` |
+| `title` | string | Illustration title |
+| `description` | string | Illustration description |
+| `image_urls` | array of strings | All image URLs on the page |
+
+Search writes each result as it becomes available. An empty search writes
+zero lines. If a result page returns an HTTP error or times out, search
+warns on standard error and continues with its usual exit status.
+
+```sh
+irasutoya random --jsonl
+
+page_url=$(irasutoya search '白い猫' --jsonl | jq -ser '.[0].page_url // empty') &&
+  irasutoya download "$page_url" --output ./images
+```
+
 ## Download images
 
 ```sh
