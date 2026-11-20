@@ -52,7 +52,7 @@ module Irasutoya
       end
 
       def display(irasuto)
-        require 'terminal_image'
+        require 'irasutoya/cli/preview'
 
         display_metadata(irasuto)
         return unless $stdout.tty?
@@ -77,7 +77,7 @@ module Irasutoya
         Tempfile.create(binmode: true) do |file|
           download_preview(URI.parse(image_url), file)
           file.rewind
-          TerminalImage.show(file)
+          Preview.show(file)
         end
       rescue PreviewTooLarge
         say "warn: Image preview exceeds the #{MAX_PREVIEW_BYTES}-byte limit", :yellow
