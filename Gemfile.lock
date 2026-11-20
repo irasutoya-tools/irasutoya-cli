@@ -3,6 +3,7 @@ PATH
   specs:
     irasutoya-cli (1.0.1)
       irasutoya (~> 2.0)
+      json
       terminal_image (~> 1.1)
       thor
 
