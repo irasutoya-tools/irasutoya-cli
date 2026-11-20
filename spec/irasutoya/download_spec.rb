@@ -87,6 +87,19 @@ RSpec.describe 'irasutoya download' do
     expect { run_download }.to raise_error(RuntimeError, /redirection forbidden/)
   end
 
+  context 'with an image URL containing terminal control characters' do
+    let(:image_urls) { ["https://example.com/cat\e[0m\n.png"] }
+    let(:image_data) { [] }
+
+    it 'escapes control characters in the download error sent to stderr' do
+      expect(Net::HTTP).not_to receive(:start)
+
+      expect do
+        expect { run_download }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      end.to output(/\ACould not download https:\/\/example\.com\/cat\\x1B\[0m\\x0A\.png: [^\p{Cc}]+\n\z/).to_stderr
+    end
+  end
+
   context 'with 100 images sharing a basename' do
     let(:image_urls) { Array.new(100) { |index| "https://example.com/#{index}/cat.png" } }
     let(:image_data) { Array.new(100) { |index| "image #{index}" } }

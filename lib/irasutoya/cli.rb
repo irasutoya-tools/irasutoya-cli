@@ -5,6 +5,7 @@ require 'tempfile'
 require 'timeout'
 require 'irasutoya/cli/https_url'
 require 'irasutoya/cli/preview_sessions'
+require 'irasutoya/cli/terminal_output'
 require 'irasutoya/cli/version'
 require 'thor'
 
@@ -92,7 +93,7 @@ module Irasutoya
       end
 
       def escape_controls(value)
-        value.to_s.gsub(/\p{Cc}/) { |character| format('\\x%02X', character.ord) }
+        TerminalOutput.escape_controls(value)
       end
 
       def show_preview(image_url)

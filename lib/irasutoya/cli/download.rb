@@ -3,6 +3,7 @@
 require 'fileutils'
 require 'irasutoya'
 require 'irasutoya/cli/https_url'
+require 'irasutoya/cli/terminal_output'
 require 'net/http'
 require 'tempfile'
 require 'thor'
@@ -48,7 +49,7 @@ module Irasutoya
           link_image(file.path, image_filename(uri), next_suffixes)
         end
       rescue URI::InvalidURIError => e
-        raise Thor::Error, "Could not download #{url}: #{e.message}"
+        raise Thor::Error, TerminalOutput.escape_controls("Could not download #{url}: #{e.message}")
       rescue EOFError => e
         raise Thor::Error, "Incomplete image download from #{uri}: #{e.message}"
       end
