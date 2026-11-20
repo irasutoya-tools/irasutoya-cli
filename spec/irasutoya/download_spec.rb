@@ -44,6 +44,34 @@ RSpec.describe 'irasutoya download' do
     expect(Dir.children(directory)).to match_array(%w[cat.png cat-1.png])
   end
 
+  context 'with 100 images sharing a basename' do
+    let(:image_urls) { Array.new(100) { |index| "https://example.com/#{index}/cat.png" } }
+    let(:image_data) { Array.new(100) { |index| "image #{index}" } }
+
+    it 'saves each image under a sequential name with one link attempt per image' do
+      expect(File).to receive(:link).exactly(100).times.and_call_original
+      names = ['cat.png', *(1...100).map { |index| "cat-#{index}.png" }]
+      paths = names.map { |name| File.join(directory, name) }
+
+      expect { run_download }.to output(paths.map { |path| "Saved: #{path}\n" }.join).to_stdout
+      expect(paths.map { |path| File.binread(path) }).to eq(image_data)
+      expect(Dir.children(directory)).to match_array(names)
+    end
+  end
+
+  it 'retries when another writer claims the next suffix before the link' do
+    collision = File.join(directory, 'cat-1.png')
+    allow(File).to receive(:link).and_wrap_original do |link, source, path|
+      File.binwrite(collision, 'another writer') if path == collision
+      link.call(source, path)
+    end
+    paths = %w[cat.png cat-2.png].map { |name| File.join(directory, name) }
+
+    expect { run_download }.to output(paths.map { |path| "Saved: #{path}\n" }.join).to_stdout
+    expect(paths.map { |path| File.binread(path) }).to eq(image_data)
+    expect(File.binread(collision)).to eq('another writer')
+  end
+
   it 'preserves existing files and skips occupied suffixes' do
     FileUtils.mkdir_p(directory)
     File.binwrite(File.join(directory, 'cat.png'), 'original')
