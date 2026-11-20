@@ -61,6 +61,16 @@ RSpec.describe 'irasutoya download' do
     expect(Dir.children(directory)).to eq(['cat.png'])
   end
 
+  it 'cannot save an image when the destination filesystem rejects hard links' do
+    allow(File).to receive(:link).with(anything, File.join(directory, 'cat.png')) do |source, _destination|
+      expect(File.binread(source)).to eq(image_data.first)
+      raise Errno::EOPNOTSUPP
+    end
+
+    expect { run_download }.to raise_error(Errno::EOPNOTSUPP)
+    expect(Dir.children(directory)).to be_empty
+  end
+
   it 'reports a truncated image URL and only announces and keeps the completed image' do
     stub_image_response(URI.parse(image_urls.last), 'short', { 'content-length' => '12' })
 

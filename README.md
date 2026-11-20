@@ -33,6 +33,8 @@ For each result, the CLI prints the illustration's page URL, title, description,
 $ irasutoya download 'PAGE_URL' --output ./images
 ```
 
+Choose an `--output` directory on a filesystem that supports hard links. The command uses hard links to save images, so a FAT32 destination will fail even if it is writable.
+
 The command creates the destination directory if needed, saves every image on the page, and prints each saved path. If a filename is already taken, the command adds a numeric suffix before the extension. Downloads work in terminals without inline preview support.
 
 ## Usage
