@@ -50,6 +50,8 @@ module Irasutoya
           file.flush
           link_image(file.path, filename, next_suffixes)
         end
+      rescue ImageTransfer::ResponseError => e
+        raise Thor::Error, "Could not fetch image #{url}: #{e.message}"
       end
 
       def copy_image(uri, destination)

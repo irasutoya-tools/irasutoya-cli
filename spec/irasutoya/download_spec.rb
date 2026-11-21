@@ -98,13 +98,20 @@ RSpec.describe 'irasutoya download' do
     expect(Dir.children(directory)).to eq(['cat.png'])
   end
 
-  it 'keeps completed images and propagates an image HTTP error' do
+  it 'reports an image HTTP failure once and only announces and keeps the completed image' do
     response = Net::HTTPNotFound.new('1.1', '404', 'Not Found')
     allow(http).to receive(:request_get).with(URI.parse(image_urls.last).request_uri, request_headers)
                                        .and_yield(response)
+    path = File.join(directory, 'cat.png')
+    stub_const('ARGV', ['download', page_url, '--output', directory])
+    executable = File.expand_path('../../exe/irasutoya', __dir__)
 
-    expect { run_download }.to raise_error(Irasutoya::Cli::ImageTransfer::ResponseError, '404 "Not Found"')
+    expect do
+      expect { load executable }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+    end.to output("Could not fetch image #{image_urls.last}: 404 \"Not Found\"\n").to_stderr
+      .and output("Saved: #{path}\n").to_stdout
     expect(Dir.children(directory)).to eq(['cat.png'])
+    expect(File.binread(path)).to eq(image_data.first)
   end
 
   it 'stops reading an oversized response without Content-Length and removes its temporary file' do
