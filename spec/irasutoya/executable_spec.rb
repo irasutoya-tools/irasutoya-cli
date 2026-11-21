@@ -46,4 +46,11 @@ RSpec.describe 'irasutoya executable' do # rubocop:disable Metrics/BlockLength
     expect(stdout).to include('Commands:')
     expect(status).to be_success
   end
+
+  it 'lists the commands in the tree' do
+    stdout, _stderr, status = Open3.capture3(RbConfig.ruby, executable, 'tree')
+
+    expect(status).to be_success
+    expect(stdout).to include(/\bdownload\b/, /\brandom\b/, /\bsearch\b/)
+  end
 end

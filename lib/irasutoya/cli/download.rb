@@ -50,6 +50,8 @@ module Irasutoya
           file.flush
           link_image(file.path, filename, next_suffixes)
         end
+      rescue ImageTransfer::ResponseError => e
+        raise Thor::Error, "Could not fetch image #{url}: #{e.message}"
       end
 
       def copy_image(uri, destination)
@@ -73,19 +75,16 @@ module Irasutoya
       end
 
       def link_image(source, filename, next_suffixes)
+        extension = File.extname(filename)
+        stem = filename.delete_suffix(extension)
         next_suffixes[filename].step do |index|
-          path = index.zero? ? link_path(source, filename) : link_with_suffix(source, filename, index)
+          ending = index.zero? ? extension : "-#{index}#{extension}"
+          path = link_with_stem(source, stem, ending)
           next_suffixes[filename] = index + 1
           return path
         rescue Errno::EEXIST
           next
         end
-      end
-
-      def link_with_suffix(source, filename, index)
-        extension = File.extname(filename)
-        stem = File.basename(filename, extension)
-        link_with_stem(source, stem, "-#{index}#{extension}")
       end
 
       def link_with_stem(source, stem, ending)

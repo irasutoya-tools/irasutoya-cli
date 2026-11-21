@@ -29,7 +29,7 @@ Gem::Specification.new do |spec|
   spec.add_dependency 'irasutoya', '~> 2.0'
   spec.add_dependency 'json'
   spec.add_dependency 'terminal_image', '~> 1.1'
-  spec.add_dependency 'thor'
+  spec.add_dependency 'thor', '>= 1.5.0'
 
   spec.add_development_dependency 'base64'
   spec.add_development_dependency 'bundler', '~> 4.1'

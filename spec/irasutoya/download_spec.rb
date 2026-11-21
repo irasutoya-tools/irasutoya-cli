@@ -98,13 +98,20 @@ RSpec.describe 'irasutoya download' do
     expect(Dir.children(directory)).to eq(['cat.png'])
   end
 
-  it 'keeps completed images and propagates an image HTTP error' do
+  it 'reports an image HTTP failure once and only announces and keeps the completed image' do
     response = Net::HTTPNotFound.new('1.1', '404', 'Not Found')
     allow(http).to receive(:request_get).with(URI.parse(image_urls.last).request_uri, request_headers)
                                        .and_yield(response)
+    path = File.join(directory, 'cat.png')
+    stub_const('ARGV', ['download', page_url, '--output', directory])
+    executable = File.expand_path('../../exe/irasutoya', __dir__)
 
-    expect { run_download }.to raise_error(Irasutoya::Cli::ImageTransfer::ResponseError, '404 "Not Found"')
+    expect do
+      expect { load executable }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+    end.to output("Could not fetch image #{image_urls.last}: 404 \"Not Found\"\n").to_stderr
+      .and output("Saved: #{path}\n").to_stdout
     expect(Dir.children(directory)).to eq(['cat.png'])
+    expect(File.binread(path)).to eq(image_data.first)
   end
 
   it 'stops reading an oversized response without Content-Length and removes its temporary file' do
@@ -231,6 +238,24 @@ RSpec.describe 'irasutoya download' do
 
     expect { run_download }.to output(/cat\.png\n.*cat-1\.png\n/m).to_stdout
     expect(File.binread(File.join(directory, 'cat-1.png'))).to eq(image_data.last)
+  end
+
+  context 'when the filename exceeds the 255-byte component limit' do
+    let(:filename) { "#{'a' * 252}.png" }
+    let(:image_urls) { ["https://example.com/#{filename}"] }
+
+    it 'shortens the first filename and preserves that file on a second download' do
+      first_path = File.join(directory, "#{'a' * 251}.png")
+      second_path = File.join(directory, "#{'a' * 249}-1.png")
+
+      expect { run_download }.to output("Saved: #{first_path}\n").to_stdout
+      expect(File.binread(first_path)).to eq(image_data.first)
+
+      stub_image(image_urls.first, image_data.last)
+      expect { run_download }.to output("Saved: #{second_path}\n").to_stdout
+      expect([first_path, second_path].map { |path| File.binread(path) }).to eq(image_data)
+      expect(Dir.children(directory)).to match_array([File.basename(first_path), File.basename(second_path)])
+    end
   end
 
   context 'when the filename reaches the 255-byte component limit' do

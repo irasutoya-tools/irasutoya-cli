@@ -114,6 +114,8 @@ module Irasutoya
 
           file.write(chunk)
         end
+      rescue EOFError => e
+        raise ImageTransfer::ResponseError, e.message
       end
     end
   end
