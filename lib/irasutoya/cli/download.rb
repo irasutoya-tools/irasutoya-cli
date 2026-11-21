@@ -58,7 +58,9 @@ module Irasutoya
       end
 
       def copy_image(uri, destination, transfer)
-        transfer.fetch(uri) { |chunk| write_chunk(destination, chunk) }
+        transfer.fetch(uri, max_bytes: MAX_IMAGE_BYTES) { |chunk| destination.write(chunk) }
+      rescue ImageTransfer::BodyTooLargeError
+        raise Thor::Error, "Image download exceeds the #{MAX_IMAGE_BYTES}-byte limit"
       rescue ImageTransfer::IncompleteBodyError => e
         raise Thor::Error, "Incomplete image download from #{uri}: #{e.message}"
       rescue ImageTransfer::TooManyRedirectsError
@@ -70,14 +72,6 @@ module Irasutoya
       def image_filename(uri)
         filename = File.basename(uri.path)
         ['', '.', '..', '/'].include?(filename) ? 'image' : filename
-      end
-
-      def write_chunk(destination, chunk)
-        if destination.pos + chunk.bytesize > MAX_IMAGE_BYTES
-          raise Thor::Error, "Image download exceeds the #{MAX_IMAGE_BYTES}-byte limit"
-        end
-
-        destination.write(chunk)
       end
 
       def link_image(source, filename, next_suffixes)

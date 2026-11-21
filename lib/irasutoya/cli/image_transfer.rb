@@ -14,12 +14,53 @@ module Irasutoya
 
       class ResponseError < Error; end
       class IncompleteBodyError < ResponseError; end
+      class BodyTooLargeError < ResponseError; end
       class InvalidSchemeError < ResponseError; end
       class TooManyRedirectsError < Error; end
       class InsecureRedirectError < ResponseError; end
 
-      def self.fetch(uri, &on_chunk)
-        with_sessions { |transfer| transfer.fetch(uri, &on_chunk) }
+      class ResponseBody
+        def initialize(response, max_bytes)
+          @response = response
+          @max_bytes = max_bytes
+          @length = response.content_length unless response.key?('transfer-encoding')
+          @bytes = 0
+        end
+
+        def read
+          enforce_limit(@length) if @length
+          @response.read_body do |chunk|
+            @bytes += chunk.bytesize
+            enforce_limit(@bytes)
+            yield chunk
+          end
+          validate
+        rescue EOFError => e
+          raise IncompleteBodyError, incomplete_message || e.message
+        end
+
+        private
+
+        def enforce_limit(bytes)
+          return unless @max_bytes && bytes > @max_bytes
+
+          raise BodyTooLargeError, "Image response exceeds the #{@max_bytes}-byte limit"
+        end
+
+        def validate
+          message = incomplete_message
+          raise IncompleteBodyError, message if message
+          raise ResponseError, 'Empty image response' if @bytes.zero?
+        end
+
+        def incomplete_message
+          "expected #{@length} bytes, received #{@bytes}" if @length && @bytes < @length
+        end
+      end
+      private_constant :ResponseBody
+
+      def self.fetch(uri, max_bytes: nil, &on_chunk)
+        with_sessions { |transfer| transfer.fetch(uri, max_bytes:, &on_chunk) }
       end
 
       def self.with_sessions
@@ -33,10 +74,12 @@ module Irasutoya
         @sessions = {}
       end
 
-      def fetch(uri, &)
+      def fetch(uri, max_bytes: nil, &)
         raise InvalidSchemeError, 'Image URL must use HTTPS' unless uri.is_a?(URI::HTTPS) && !uri.host.to_s.empty?
 
-        Timeout.timeout(TRANSFER_TIMEOUT, ResponseError, 'Image transfer deadline exceeded') { fetch_image(uri, &) }
+        Timeout.timeout(TRANSFER_TIMEOUT, ResponseError, 'Image transfer deadline exceeded') do
+          fetch_image(uri, max_bytes, &)
+        end
       end
 
       def close
@@ -46,9 +89,9 @@ module Irasutoya
 
       private
 
-      def fetch_image(uri, &)
+      def fetch_image(uri, max_bytes, &)
         MAX_REDIRECTS.downto(0) do |redirects_left|
-          redirect = request(uri, &)
+          redirect = request(uri, max_bytes, &)
           break unless redirect
           raise TooManyRedirectsError, 'Too many image redirects' if redirects_left.zero?
 
@@ -56,11 +99,11 @@ module Irasutoya
         end
       end
 
-      def request(uri, &on_chunk)
+      def request(uri, max_bytes, &on_chunk)
         redirect = nil
         with_connection(uri) do |http|
           http.request_get(uri.request_uri, 'Accept-Encoding' => 'identity') do |response|
-            next stream_image(response, &on_chunk) unless REDIRECT_CODES.include?(response.code)
+            next stream_image(response, max_bytes, &on_chunk) unless REDIRECT_CODES.include?(response.code)
 
             redirect = response
             return redirect unless empty_body?(response)
@@ -79,11 +122,11 @@ module Irasutoya
         @sessions.delete(origin)&.finish unless completed
       end
 
-      def stream_image(response, &)
+      def stream_image(response, max_bytes, &)
         raise IncompleteBodyError, 'HTTP 206 Partial Content' if response.code == '206'
 
         response.value
-        read_body(response, &)
+        ResponseBody.new(response, max_bytes).read(&)
       end
 
       def session(uri, origin)
@@ -93,25 +136,6 @@ module Irasutoya
 
       def empty_body?(response)
         response['content-length'] == '0' && !response.key?('transfer-encoding')
-      end
-
-      def read_body(response)
-        length = response.content_length unless response.key?('transfer-encoding')
-        bytes = 0
-        response.read_body do |chunk|
-          bytes += chunk.bytesize
-          yield chunk
-        end
-        validate_body(length, bytes)
-      rescue EOFError => e
-        raise IncompleteBodyError, "expected #{length} bytes, received #{bytes}" if length && bytes < length
-
-        raise IncompleteBodyError, e.message
-      end
-
-      def validate_body(length, bytes)
-        raise IncompleteBodyError, "expected #{length} bytes, received #{bytes}" if length && bytes < length
-        raise ResponseError, 'Empty image response' if bytes.zero?
       end
 
       def redirect_uri(uri, response)
