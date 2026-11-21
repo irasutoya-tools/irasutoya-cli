@@ -17,4 +17,8 @@ RSpec.describe 'Gem metadata' do
   it 'requires terminal_image 1.1.0 or later within the 1.x series at runtime' do
     expect(gemspec.runtime_dependencies).to include(Gem::Dependency.new('terminal_image', '~> 1.1'))
   end
+
+  it 'requires Thor 1.5.0 or later at runtime' do
+    expect(gemspec.runtime_dependencies).to include(Gem::Dependency.new('thor', '>= 1.5.0'))
+  end
 end
