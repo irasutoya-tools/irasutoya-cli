@@ -73,7 +73,7 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
     end
 
     before do
-      stub_const('Irasutoya::Cli::Runner::MAX_PREVIEW_BYTES', image_data.first.bytesize)
+      stub_const('Irasutoya::Cli::ImageTransfer::MAX_IMAGE_BYTES', image_data.first.bytesize)
       allow(Net::HTTP).to receive(:start).with('example.com', 443, use_ssl: true, max_retries: 0, ignore_eof: false).and_return(http)
       responses.each { |path, response| allow(http).to receive(:request_get).with(path, headers).and_yield(response) }
       allow(Irasutoya::Cli::Preview).to receive(:show)

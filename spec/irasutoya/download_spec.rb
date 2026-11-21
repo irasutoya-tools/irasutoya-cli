@@ -130,7 +130,7 @@ RSpec.describe 'irasutoya download' do
   end
 
   it 'preserves existing files and skips occupied suffixes' do
-    stub_const('Irasutoya::Cli::Download::MAX_IMAGE_BYTES', image_data.first.bytesize)
+    stub_const('Irasutoya::Cli::ImageTransfer::MAX_IMAGE_BYTES', image_data.first.bytesize)
     FileUtils.mkdir_p(directory)
     File.binwrite(File.join(directory, 'cat.png'), 'original')
     File.binwrite(File.join(directory, 'cat-1.png'), 'also original')
@@ -186,7 +186,7 @@ RSpec.describe 'irasutoya download' do
   end
 
   it 'stops reading an oversized response without Content-Length and removes its temporary file' do
-    stub_const('Irasutoya::Cli::Download::MAX_IMAGE_BYTES', image_data.first.bytesize)
+    stub_const('Irasutoya::Cli::ImageTransfer::MAX_IMAGE_BYTES', image_data.first.bytesize)
     response = stub_image(image_urls.last, image_data.last)
     allow(response).to receive(:read_body) do |&receive_chunk|
       receive_chunk.call(image_data.first)
