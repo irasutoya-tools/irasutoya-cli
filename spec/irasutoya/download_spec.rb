@@ -194,6 +194,20 @@ RSpec.describe 'irasutoya download' do
     expect(File.binread(path)).to eq(image_data.first)
   end
 
+  it 'reports an oversized Content-Length before reading the body and removes its temporary file' do
+    limit = image_data.first.bytesize
+    stub_const('Irasutoya::Cli::Download::MAX_IMAGE_BYTES', limit)
+    response = stub_image(image_urls.last, image_data.last)
+    response['Content-Length'] = (limit + 1).to_s
+    expect(response).not_to receive(:read_body)
+
+    expect do
+      expect { run_download }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+    end.to output("Image download exceeds the #{limit}-byte limit\n").to_stderr
+    expect(Dir.children(directory)).to eq(['cat.png'])
+    expect(File.binread(File.join(directory, 'cat.png'))).to eq(image_data.first)
+  end
+
   it 'stops reading an oversized response without Content-Length and removes its temporary file' do
     stub_const('Irasutoya::Cli::Download::MAX_IMAGE_BYTES', image_data.first.bytesize)
     response = stub_image(image_urls.last, image_data.last)
@@ -328,10 +342,12 @@ RSpec.describe 'irasutoya download' do
     expect(Dir.children(directory)).to be_empty
   end
 
-  it 'uses chunked framing when both Transfer-Encoding and Content-Length are present' do
+  it 'ignores an oversized Content-Length when Transfer-Encoding is present' do
+    limit = image_data.map(&:bytesize).max
+    stub_const('Irasutoya::Cli::Download::MAX_IMAGE_BYTES', limit)
     response = stub_image(image_urls.last, image_data.last)
     response['transfer-encoding'] = 'chunked'
-    response['content-length'] = '12'
+    response['content-length'] = (limit + 1).to_s
 
     expect { run_download }.to output(/cat\.png\n.*cat-1\.png\n/m).to_stdout
     expect(File.binread(File.join(directory, 'cat-1.png'))).to eq(image_data.last)
