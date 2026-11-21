@@ -18,6 +18,33 @@ module Irasutoya
       class TooManyRedirectsError < Error; end
       class InsecureRedirectError < ResponseError; end
 
+      class SessionCache
+        MAX_SESSIONS = 4
+
+        def initialize
+          @sessions = {}
+        end
+
+        def fetch(origin)
+          # Keep the hash ordered from least to most recently used.
+          http = @sessions.delete(origin)
+          return @sessions[origin] = http if http
+
+          discard(@sessions.first.first) if @sessions.size >= MAX_SESSIONS
+          @sessions[origin] = yield
+        end
+
+        def discard(origin)
+          @sessions.delete(origin)&.finish
+        end
+
+        def close
+          @sessions.each_value(&:finish)
+          @sessions.clear
+        end
+      end
+      private_constant :SessionCache
+
       def self.fetch(uri, &on_chunk)
         with_sessions { |transfer| transfer.fetch(uri, &on_chunk) }
       end
@@ -30,7 +57,7 @@ module Irasutoya
       end
 
       def initialize
-        @sessions = {}
+        @sessions = SessionCache.new
       end
 
       def fetch(uri, &)
@@ -40,8 +67,7 @@ module Irasutoya
       end
 
       def close
-        @sessions.each_value(&:finish)
-        @sessions.clear
+        @sessions.close
       end
 
       private
@@ -76,7 +102,7 @@ module Irasutoya
       rescue Net::HTTPExceptions => e
         raise ResponseError, e.message
       ensure
-        @sessions.delete(origin)&.finish unless completed
+        @sessions.discard(origin) unless completed
       end
 
       def stream_image(response, &)
@@ -88,7 +114,7 @@ module Irasutoya
 
       def session(uri, origin)
         options = { use_ssl: true, max_retries: 0, ignore_eof: false }
-        @sessions[origin] ||= Net::HTTP.start(uri.hostname, uri.port, **options)
+        @sessions.fetch(origin) { Net::HTTP.start(uri.hostname, uri.port, **options) }
       end
 
       def empty_body?(response)
