@@ -16,7 +16,7 @@ module Irasutoya
       def fetch_page_and_parse(url)
         uri = HttpsUrl.parse(url)
         MAX_REDIRECTS.downto(0) do |remaining|
-          location = request_html(uri) { |response| return parse_html(response) }
+          location = request_html(uri) { |response, http| return parse_html(response, http) }
           raise Error, 'Too many HTML redirects' if remaining.zero?
 
           uri = html_redirect(uri, location)
@@ -34,20 +34,31 @@ module Irasutoya
               raise OpenURI::HTTPError.new("#{response.code} #{response.message}", nil)
             end
 
-            yield response
+            yield response, http
           end
         end
       end
 
-      def parse_html(response)
+      def parse_html(response, http)
         check_html_size(response.content_length) unless response.key?('transfer-encoding')
+        Nokogiri::HTML.parse(read_html(response, http), nil, html_charset(response))
+      rescue IOError, Errno::EBADF => e
+        raise e.cause if e.cause.is_a?(Error)
+
+        raise
+      end
+
+      def read_html(response, http)
         html = String.new(encoding: Encoding::BINARY)
         response.read_body do |chunk|
           check_html_size(html.bytesize + chunk.bytesize)
           html << chunk
+        rescue Error
+          # Net::HTTP can still read the chunk terminator while unwinding.
+          http.finish
+          raise
         end
-
-        Nokogiri::HTML.parse(html, nil, html_charset(response))
+        html
       end
 
       def html_charset(response)

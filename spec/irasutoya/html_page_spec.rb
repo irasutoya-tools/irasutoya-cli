@@ -2,6 +2,8 @@
 
 require 'irasutoya/cli/illustration'
 require 'irasutoya/cli/download'
+require 'openssl'
+require 'socket'
 
 RSpec.describe Irasutoya::Cli::HtmlPage do
   let(:host) { 'www.irasutoya.com' }
@@ -66,6 +68,36 @@ RSpec.describe Irasutoya::Cli::HtmlPage do
       .to raise_error(Thor::Error, 'HTML response exceeds the 256-byte limit')
   end
 
+  it 'closes an oversized chunked stream even when the chunk terminator never arrives' do
+    context = local_tls_context
+    store = OpenSSL::X509::Store.new
+    store.add_cert(context.cert)
+    allow(Net::HTTP).to receive(:start).and_wrap_original do |start, host, port, **options, &request|
+      start.call(host, port, nil, **options, cert_store: store, read_timeout: 1, &request)
+    end
+
+    TCPServer.open('127.0.0.1', 0) do |server|
+      tls_server = OpenSSL::SSL::SSLServer.new(server, context)
+      worker = Thread.new { serve_unterminated_chunk(tls_server) }
+      url = "https://127.0.0.1:#{server.addr[1]}/cat.html"
+      expect(Nokogiri::HTML).not_to receive(:parse)
+
+      expect { Irasutoya::Cli::Illustration.fetch_page_and_parse(url) }
+        .to raise_error(described_class::Error, 'HTML response exceeds the 256-byte limit')
+      expect(worker.join(5)).to eq(worker)
+    ensure
+      worker&.kill&.join
+    end
+  end
+
+  it 'preserves an unrelated body read error' do
+    allow(respond('/cat.html')).to receive(:read_body).and_raise(EOFError, 'end of file reached')
+    expect(http).not_to receive(:finish)
+
+    expect { Irasutoya::Cli::Illustration.fetch_page_and_parse(page_url) }
+      .to raise_error(EOFError, 'end of file reached')
+  end
+
   it 'does not read an error response body' do
     response = respond('/cat.html', Net::HTTPNotFound.new('1.1', '404', 'Not Found'))
     expect(response).not_to receive(:read_body)
@@ -106,9 +138,37 @@ RSpec.describe Irasutoya::Cli::HtmlPage do
     response
   end
 
+  def local_tls_context
+    key = OpenSSL::PKey::RSA.new(2048)
+    cert = OpenSSL::X509::Certificate.new
+    cert.version = 2
+    cert.serial = 1
+    cert.subject = cert.issuer = OpenSSL::X509::Name.parse('/CN=127.0.0.1')
+    cert.public_key = key.public_key
+    cert.not_before = Time.now - 60
+    cert.not_after = Time.now + 60
+    cert.add_extension(OpenSSL::X509::ExtensionFactory.new.create_extension('subjectAltName', 'IP:127.0.0.1'))
+    cert.sign(key, OpenSSL::Digest.new('SHA256'))
+
+    OpenSSL::SSL::SSLContext.new.tap do |context|
+      context.cert = cert
+      context.key = key
+    end
+  end
+
+  def serve_unterminated_chunk(server)
+    socket = server.accept
+    socket.each_line { |line| break if line == "\r\n" }
+    socket.write("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n101\r\n" + ('a' * 257))
+    socket.read
+  ensure
+    socket&.close
+  end
+
   def stream_oversized_detail
     response = respond('/cat.html')
     response['transfer-encoding'] = 'chunked'
+    expect(http).to receive(:finish)
     expect(response).to receive(:read_body) do |&receive_chunk|
       receive_chunk.call(detail.ljust(256))
       receive_chunk.call('猫')
