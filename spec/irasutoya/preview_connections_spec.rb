@@ -62,6 +62,32 @@ RSpec.describe Irasutoya::Cli::Runner do
     end
   end
 
+  {
+    'missing' => {},
+    'blank' => { 'Location' => '' },
+    'invalid' => { 'Location' => 'http://[' },
+    'hostless' => { 'Location' => 'http:///image.png' },
+    'missing its authority' => { 'Location' => '///image.png' },
+    'using an out-of-range port' => { 'Location' => 'http://127.0.0.1:65536/image.png' },
+    'non-HTTP' => { 'Location' => 'file:///image.png' }
+  }.each do |kind, headers|
+    it "warns once and renders the next image when the redirect location is #{kind}" do
+      serve_previews([
+        ['/first.png', '302 Found', headers, ''],
+        ['/second.png', '200 OK', {}, 'second']
+      ]) do |origin|
+        first = "#{origin}/first.png"
+        allow(Irasutoya::Irasuto).to receive(:random).and_return(illustration(first, "#{origin}/second.png"))
+
+        runner.random
+
+        expect(runner).to have_received(:say).with(start_with("warn: Could not preview #{first}:"), :yellow).once
+        expect(runner).to have_received(:say).with(start_with('warn:'), :yellow).once
+        expect(rendered).to eq(['second'])
+      end
+    end
+  end
+
   def illustration(*image_urls)
     Irasutoya::Irasuto.new(url: image_urls.first, title: 'Title', description: 'Description', image_urls:)
   end
