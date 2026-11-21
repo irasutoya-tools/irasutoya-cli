@@ -51,7 +51,7 @@ RSpec.describe Irasutoya::Cli::Runner do
         result = illustration("#{origin}/#{name}.png")
         instance_double(Irasutoya::IrasutoLink, show_url: result.url, fetch_irasuto: result)
       end
-      allow(Irasutoya::Irasuto).to receive(:search).with(query: 'query').and_return(links)
+      allow(Irasutoya::Cli::Illustration).to receive(:search).with(query: 'query').and_return(links)
 
       runner.search('query')
 
@@ -68,7 +68,7 @@ RSpec.describe Irasutoya::Cli::Runner do
       later_url = "#{origin}/second.png"
       results = [illustration(closed_url, "#{origin}/first.png"), illustration(later_url)]
       links = results.map { |result| instance_double(Irasutoya::IrasutoLink, show_url: result.url, fetch_irasuto: result) }
-      allow(Irasutoya::Irasuto).to receive(:search).with(query: 'query').and_return(links)
+      allow(Irasutoya::Cli::Illustration).to receive(:search).with(query: 'query').and_return(links)
 
       runner.search('query')
 

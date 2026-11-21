@@ -25,20 +25,23 @@ module Irasutoya
       def random
         require 'irasutoya/cli/illustration'
         with_preview_sessions { display(Illustration.random) }
+      rescue HtmlPage::Error => e
+        raise Thor::Error, e.message
       end
 
       desc 'search {query}', 'Shows images from up to three result pages. Each page can contain multiple images.'
       method_option :jsonl, **JSONL_OPTION
       def search(query)
-        require 'irasutoya'
+        require 'irasutoya/cli/illustration'
         with_preview_sessions do
-          Irasutoya::Irasuto
-            .search(query:)
-            .take(3)
-            .lazy
-            .filter_map(&method(:fetch_result))
-            .each(&method(:display))
+          Illustration.search(query:)
+                      .take(3)
+                      .lazy
+                      .filter_map(&method(:fetch_result))
+                      .each(&method(:display))
         end
+      rescue HtmlPage::Error => e
+        raise Thor::Error, e.message
       end
 
       desc 'download PAGE_URL', 'Saves all images from an illustration page'
@@ -56,8 +59,8 @@ module Irasutoya
       def fetch_result(link)
         url = HttpsUrl.parse(link.show_url).to_s
         link = Irasutoya::IrasutoLink.new(title: link.title, show_url: url) if url != link.show_url
-        link.fetch_irasuto
-      rescue OpenURI::HTTPError, Timeout::Error, URI::InvalidURIError => e
+        link.extend(HtmlPage).fetch_irasuto
+      rescue HtmlPage::Error, OpenURI::HTTPError, Timeout::Error, URI::InvalidURIError => e
         warn "warn: Could not fetch result page #{escape_controls(link.show_url)}: #{escape_controls(e.message)}"
         nil
       end
