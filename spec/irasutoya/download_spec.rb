@@ -152,6 +152,23 @@ RSpec.describe 'irasutoya download' do
     expect(Dir.children(directory)).to eq(['cat.png'])
   end
 
+  it 'exits on the transfer deadline and keeps only the completed image' do
+    stub_const('Irasutoya::Cli::ImageTransfer::TRANSFER_TIMEOUT', 0.25)
+    response = stub_image(image_urls.last, image_data.last)
+    allow(response).to receive(:read_body) do |&receive_chunk|
+      receive_chunk.call('partial')
+      sleep 1
+    end
+    path = File.join(directory, 'cat.png')
+
+    expect do
+      expect { run_download }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+    end.to output("Could not fetch image #{image_urls.last}: Image transfer deadline exceeded\n").to_stderr
+      .and output("Saved: #{path}\n").to_stdout
+    expect(Dir.children(directory)).to eq(['cat.png'])
+    expect(File.binread(path)).to eq(image_data.first)
+  end
+
   it 'reports an image HTTP failure once and only announces and keeps the completed image' do
     response = Net::HTTPNotFound.new('1.1', '404', 'Not Found')
     allow(http).to receive(:request_get).with(URI.parse(image_urls.last).request_uri, request_headers)
