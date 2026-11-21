@@ -302,6 +302,21 @@ RSpec.describe 'irasutoya download' do
     expect(File.exist?(File.dirname(directory))).to be(false)
   end
 
+  it 'escapes terminal controls in the failed page URL and HTTP error' do
+    url = "#{page_url}?source=search\e[0m"
+    allow(Irasutoya::IrasutoLink).to receive(:new).with(title: nil, show_url: "#{page_url}?source=search%1B[0m")
+                                                 .and_return(link)
+    allow(link).to receive(:fetch_irasuto).and_raise(OpenURI::HTTPError.new("404 Not\e[2J Found\n\tTry again", nil))
+    expect(Net::HTTP).not_to receive(:start)
+    diagnostic = "Could not fetch illustration page #{page_url}?source=search\\x1B[0m: " \
+                 "404 Not\\x1B[2J Found\\x0A\\x09Try again\n"
+
+    expect do
+      expect { run_download(url) }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+    end.to output(diagnostic).to_stderr.and output('').to_stdout
+    expect(File.exist?(directory)).to be(false)
+  end
+
   it 'rejects a complete partial response without saving or announcing the image' do
     response = Net::HTTPPartialContent.new('1.1', '206', 'Partial Content')
     response['content-length'] = '5'
