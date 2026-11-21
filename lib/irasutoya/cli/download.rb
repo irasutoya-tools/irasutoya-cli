@@ -73,19 +73,16 @@ module Irasutoya
       end
 
       def link_image(source, filename, next_suffixes)
+        extension = File.extname(filename)
+        stem = filename.delete_suffix(extension)
         next_suffixes[filename].step do |index|
-          path = index.zero? ? link_path(source, filename) : link_with_suffix(source, filename, index)
+          ending = index.zero? ? extension : "-#{index}#{extension}"
+          path = link_with_stem(source, stem, ending)
           next_suffixes[filename] = index + 1
           return path
         rescue Errno::EEXIST
           next
         end
-      end
-
-      def link_with_suffix(source, filename, index)
-        extension = File.extname(filename)
-        stem = File.basename(filename, extension)
-        link_with_stem(source, stem, "-#{index}#{extension}")
       end
 
       def link_with_stem(source, stem, ending)
