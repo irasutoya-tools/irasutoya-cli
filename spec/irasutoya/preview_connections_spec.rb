@@ -51,6 +51,24 @@ RSpec.describe Irasutoya::Cli::Runner do
     end
   end
 
+  it 'warns once when a trickling body exceeds the deadline and previews the next image' do
+    stub_const('Irasutoya::Cli::ImageTransfer::TRANSFER_TIMEOUT', 0.25)
+    serve_previews(
+      [['/slow.png', '200 OK', {}, 'x' * 20, 0.05]],
+      [['/next.png', '200 OK', {}, 'next']]
+    ) do |origin|
+      slow_url = "#{origin}/slow.png"
+      allow(Irasutoya::Irasuto).to receive(:random).and_return(illustration(slow_url, "#{origin}/next.png"))
+
+      runner.random
+
+      expect(runner).to have_received(:say).with(start_with('warn:'), :yellow).once
+      expect(runner).to have_received(:say)
+        .with("warn: Could not preview #{slow_url}: Image transfer deadline exceeded", :yellow)
+      expect(rendered).to eq(['next'])
+    end
+  end
+
   it 'uses a separate connection across origins and closes both sessions when rendering fails' do
     serve_previews([['/image.png', '200 OK', {}, 'image']]) do |target|
       serve_previews([['/redirect.png', '302 Found', { 'Location' => "#{target}/image.png" }, '']]) do |origin|
@@ -113,13 +131,19 @@ RSpec.describe Irasutoya::Cli::Runner do
     end
   end
 
-  def respond_to_preview(socket, path, status = nil, headers = {}, body = '')
+  def respond_to_preview(socket, path, status = nil, headers = {}, body = '', delay = nil)
     expect(socket.gets).to eq("GET #{path} HTTP/1.1\r\n")
     socket.each_line.take_while { |line| line != "\r\n" }
     return unless status
 
     socket.write("HTTP/1.1 #{status}\r\nContent-Length: #{body.bytesize}\r\n")
     headers.each { |name, value| socket.write("#{name}: #{value}\r\n") }
-    socket.write("\r\n#{body}")
+    socket.write("\r\n")
+    return socket.write(body) unless delay
+
+    body.each_char do |byte|
+      socket.write(byte)
+      break if IO.select([socket], nil, nil, delay)
+    end
   end
 end

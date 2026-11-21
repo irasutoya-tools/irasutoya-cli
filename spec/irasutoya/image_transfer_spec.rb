@@ -32,6 +32,24 @@ RSpec.describe Irasutoya::Cli::ImageTransfer do
     expect { |chunks| described_class.fetch(url, &chunks) }.to yield_with_args('image')
   end
 
+  it 'shares the deadline between a redirect and the final response' do
+    stub_const('Irasutoya::Cli::ImageTransfer::TRANSFER_TIMEOUT', 0.5)
+    expect(http).to receive(:request_get).with('/images/start.png', headers).ordered do |&receive_response|
+      sleep 0.3
+      receive_response.call(redirect_to('next.png'))
+    end
+    expect(http).to receive(:request_get).with('/images/next.png', headers).ordered do |&receive_response|
+      sleep 0.3
+      image = Net::HTTPOK.new('1.1', '200', 'OK')
+      allow(image).to receive(:read_body).and_yield('image')
+      receive_response.call(image)
+    end
+
+    expect do
+      described_class.fetch(url) { raise 'Unexpected image bytes' }
+    end.to raise_error(described_class::ResponseError, 'Image transfer deadline exceeded')
+  end
+
   it 'rejects a sixth redirect before requesting its destination' do
     paths = ['/images/start.png', *1.upto(6).map { |index| "/images/#{index}.png" }]
     paths.each_cons(2) do |source, target|

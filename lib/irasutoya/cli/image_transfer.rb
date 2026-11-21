@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'net/http'
+require 'timeout'
 
 module Irasutoya
   module Cli
@@ -8,6 +9,7 @@ module Irasutoya
 
     class ImageTransfer
       MAX_REDIRECTS = 5
+      TRANSFER_TIMEOUT = 60
       REDIRECT_CODES = %w[301 302 303 307 308].freeze
 
       class ResponseError < Error; end
@@ -31,16 +33,10 @@ module Irasutoya
         @sessions = {}
       end
 
-      def fetch(uri, &on_chunk)
+      def fetch(uri, &)
         raise InvalidSchemeError, 'Image URL must use HTTP or HTTPS' unless uri.is_a?(URI::HTTP)
 
-        MAX_REDIRECTS.downto(0) do |redirects_left|
-          redirect = request(uri, &on_chunk)
-          break unless redirect
-          raise TooManyRedirectsError, 'Too many image redirects' if redirects_left.zero?
-
-          uri = redirect_uri(uri, redirect)
-        end
+        Timeout.timeout(TRANSFER_TIMEOUT, ResponseError, 'Image transfer deadline exceeded') { fetch_image(uri, &) }
       end
 
       def close
@@ -49,6 +45,16 @@ module Irasutoya
       end
 
       private
+
+      def fetch_image(uri, &)
+        MAX_REDIRECTS.downto(0) do |redirects_left|
+          redirect = request(uri, &)
+          break unless redirect
+          raise TooManyRedirectsError, 'Too many image redirects' if redirects_left.zero?
+
+          uri = redirect_uri(uri, redirect)
+        end
+      end
 
       def request(uri, &on_chunk)
         redirect = nil
