@@ -22,12 +22,12 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
     end
   end
 
-  it 'describes the search page limit and multiple images in help and the README' do
+  it 'describes the search page limit and multiple images in help and the CLI reference' do
     description = 'Shows images from up to three result pages. Each page can contain multiple images.'
-    readme = File.read(File.expand_path('../../README.md', __dir__))
+    reference = File.read(File.expand_path('../../docs/usage.md', __dir__))
 
     expect { Irasutoya::Cli::Runner.start(%w[help search]) }.to output(/#{Regexp.escape(description)}/).to_stdout
-    expect(readme).to include("irasutoya search {query}  # #{description}")
+    expect(reference).to match(/up to three result pages, each of which can\s+contain multiple images/)
   end
 
   describe 'commands' do # rubocop:disable Metrics/BlockLength
