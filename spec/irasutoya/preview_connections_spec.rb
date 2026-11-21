@@ -85,7 +85,7 @@ RSpec.describe Irasutoya::Cli::Runner do
       [['/next.png', '200 OK', {}, 'next']]
     ) do |origin|
       slow_url = "#{origin}/slow.png"
-      allow(Irasutoya::Irasuto).to receive(:random).and_return(illustration(slow_url, "#{origin}/next.png"))
+      allow(Irasutoya::Cli::Illustration).to receive(:random).and_return(illustration(slow_url, "#{origin}/next.png"))
 
       runner.random
 
@@ -93,6 +93,22 @@ RSpec.describe Irasutoya::Cli::Runner do
       expect(runner).to have_received(:say)
         .with("warn: Could not preview #{slow_url}: Image transfer deadline exceeded", :yellow)
       expect(rendered).to eq(['next'])
+    end
+  end
+
+  it 'warns once for an empty response and renders the next image' do
+    serve_previews(
+      [['/empty.png', '200 OK']],
+      [['/next.png', '200 OK', {}, 'image']]
+    ) do |origin|
+      empty_url = "#{origin}/empty.png"
+      allow(Irasutoya::Cli::Illustration).to receive(:random).and_return(illustration(empty_url, "#{origin}/next.png"))
+
+      runner.random
+
+      expect(runner).to have_received(:say).with("warn: Could not preview #{empty_url}: Empty image response", :yellow).once
+      expect(runner).to have_received(:say).with(start_with('warn:'), :yellow).once
+      expect(rendered).to eq(['image'])
     end
   end
 

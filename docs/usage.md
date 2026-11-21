@@ -1,10 +1,14 @@
 # CLI reference
 
+These examples use the current checkout. Follow the
+[checkout setup instructions](../README.md#download-images-from-a-checkout)
+before running them.
+
 ## Search and browse illustrations
 
 ```sh
-irasutoya search '白い猫'
-irasutoya random
+bundle exec exe/irasutoya search '白い猫'
+bundle exec exe/irasutoya random
 ```
 
 `search QUERY` takes one query argument. Quote a query that contains spaces.
@@ -21,11 +25,10 @@ output to a file or pipe it into another command to get the metadata
 without fetching previews.
 
 ```sh
-irasutoya search '白い猫' > results.txt
+bundle exec exe/irasutoya search '白い猫' > results.txt
 ```
 
-See [Installation](../README.md#installation) for terminal and renderer
-requirements.
+Image previews use [iTerm2](https://iterm2.com/index.html) when detected, or Sixel when the [libsixel](https://github.com/saitoha/libsixel) `img2sixel` command is on `PATH`. Otherwise, previews fall back to ANSI rendering and display in terminals that support 24-bit (true-color) ANSI colors. The ANSI fallback renders PNGs directly and requires ImageMagick (`magick` or `convert` on `PATH`) to convert other supported image formats to PNG.
 
 ### JSON Lines output
 
@@ -45,16 +48,16 @@ zero lines. If a result page returns an HTTP error or times out, search
 warns on standard error and continues with its usual exit status.
 
 ```sh
-irasutoya random --jsonl
+bundle exec exe/irasutoya random --jsonl
 
-page_url=$(irasutoya search '白い猫' --jsonl | jq -ser '.[0].page_url // empty') &&
-  irasutoya download "$page_url" --output ./images
+page_url=$(bundle exec exe/irasutoya search '白い猫' --jsonl | jq -ser '.[0].page_url // empty') &&
+  bundle exec exe/irasutoya download "$page_url" --output ./images
 ```
 
 ## Download images
 
 ```sh
-irasutoya download 'PAGE_URL' --output ./images
+bundle exec exe/irasutoya download 'PAGE_URL' --output ./images
 ```
 
 Replace `PAGE_URL` with the value from the `Page URL` field in a search or
@@ -70,6 +73,6 @@ reports an error.
 
 ## Get help
 
-Use `irasutoya help` to list commands or `irasutoya help COMMAND` to show
-arguments and options for a specific command. Use `irasutoya tree` to
-display the command tree.
+Use `bundle exec exe/irasutoya help` to list commands or
+`bundle exec exe/irasutoya help COMMAND` to show arguments and options for a
+specific command. Use `bundle exec exe/irasutoya tree` to display the command tree.

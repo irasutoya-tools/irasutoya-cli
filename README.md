@@ -18,8 +18,6 @@ Ruby 3.3 or newer is required.
 $ gem install irasutoya-cli
 ```
 
-Image previews use [iTerm2](https://iterm2.com/index.html) when detected, or Sixel when the [libsixel](https://github.com/saitoha/libsixel) `img2sixel` command is on `PATH`. Otherwise, previews fall back to ANSI rendering and display in terminals that support 24-bit (true-color) ANSI colors. The ANSI fallback renders PNGs directly and requires ImageMagick (`magick` or `convert` on `PATH`) to convert other supported image formats to PNG.
-
 ## Quick Start
 
 After installing the gem, run a search with a single query argument:
@@ -28,10 +26,26 @@ After installing the gem, run a search with a single query argument:
 $ irasutoya search '猫'
 ```
 
-For each result, the CLI prints the illustration's page URL, title, description, and image URLs. Copy the `Page URL` from `search` or `random` and pass it to `download` with a destination directory:
+Run `irasutoya random` to browse a randomly selected illustration or
+`irasutoya help` to list the commands available in your installed version.
+
+## Download images from a checkout
+
+The `download` command requires a checkout when using the 1.0.1 release.
+Install the Ruby version in [.ruby-version](.ruby-version) and the Bundler version under
+`BUNDLED WITH` in [Gemfile.lock](Gemfile.lock), then run:
 
 ```sh
-$ irasutoya download 'PAGE_URL' --output ./images
+$ git clone https://github.com/irasutoya-tools/irasutoya-cli.git
+$ cd irasutoya-cli
+$ bundle install
+```
+
+Copy the `Page URL` from a search or random result and substitute it for
+`PAGE_URL`:
+
+```sh
+$ bundle exec exe/irasutoya download 'PAGE_URL' --output ./images
 ```
 
 Choose an `--output` directory on a filesystem that supports hard links. The command uses hard links to save images, so a FAT32 destination will fail even if it is writable.
@@ -40,18 +54,8 @@ The command creates the destination directory if needed, saves every image on th
 
 Each image download is limited to 10 MiB (10,485,760 bytes). If an image exceeds the limit, the command stops and discards that download. Images already saved are kept.
 
-## Usage
-
-```sh
-$ irasutoya
-Commands:
-  irasutoya download PAGE_URL --output DIR  # Saves all images from an illustration page
-  irasutoya help [COMMAND]  # Describe available commands or one specific command
-  irasutoya random          # Gives you random irasutoya image
-  irasutoya search {query}  # Shows images from up to three result pages. Each page can contain multiple images.
-```
-
-See the [CLI reference](https://github.com/irasutoya-tools/irasutoya-cli/blob/master/docs/usage.md) for command arguments, output, and preview behavior.
+See the [CLI reference](docs/usage.md) for checkout command arguments, output,
+and preview behavior.
 
 ## Contributing
 
