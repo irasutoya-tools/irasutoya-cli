@@ -3,6 +3,7 @@
 require 'irasutoya'
 require 'irasutoya/cli/illustration'
 require 'json'
+require 'open-uri'
 require 'irasutoya/cli/preview'
 
 RSpec.describe 'JSON Lines output' do
@@ -40,6 +41,26 @@ RSpec.describe 'JSON Lines output' do
     expect { runner.start(%w[search missing --jsonl]) }.to output('').to_stdout.and output('').to_stderr
   end
 
+  it 'parses search and detail HTML, skipping a result with an unsupported URL scheme' do
+    invalid_url = 'ftp://example.com/missing.html'
+    page_url = result.fetch('page_url')
+    stub_html('https://www.irasutoya.com/search?q=%E7%8C%AB+%26+%E7%8A%AC', <<~HTML)
+      <div class="box"><a href="#{invalid_url}"></a><a>Invalid result</a></div>
+      <div class="box"><a href="#{page_url.sub('https:', 'http:')}"></a><a>Search title</a></div>
+    HTML
+    stub_html(page_url, <<~HTML)
+      <div class="post"><div class="title"><h2>白い猫</h2></div></div>
+      <div class="entry">
+        <div class="separator"><img src="//example.com/cat.png"><img src="https://example.com/cat2.png"></div>
+        <div class="separator">猫のイラスト&#10;別のポーズ</div>
+      </div>
+    HTML
+
+    expect { runner.start(['search', '猫 & 犬', '--jsonl']) }
+      .to output(satisfy { |stdout| stdout.lines.map { |line| JSON.parse(line) } == [result] }).to_stdout
+      .and output("warn: Could not fetch result page #{invalid_url}: URL must use HTTPS\n").to_stderr
+  end
+
   it 'warns on stderr and emits each successful result on its own line as search pages are fetched' do
     missing_url = 'https://www.irasutoya.com/2026/01/missing.html'
     missing = instance_double(Irasutoya::IrasutoLink, show_url: missing_url)
@@ -58,5 +79,12 @@ RSpec.describe 'JSON Lines output' do
     expect { runner.start(%w[search 猫 --jsonl]) }
       .to output(satisfy { |stdout| stdout.lines.map { |line| JSON.parse(line) } == expected }).to_stdout
       .and output("warn: Could not fetch result page #{missing_url}: timed out\n").to_stderr
+  end
+
+  def stub_html(url, html)
+    expect(OpenURI).to receive(:open_http).with(anything, URI.parse(url), anything, anything) do |buffer|
+      buffer << html
+      buffer.io.rewind
+    end
   end
 end
