@@ -4,7 +4,8 @@ require 'fileutils'
 require 'irasutoya'
 require 'irasutoya/cli/download'
 require 'nokogiri'
-require 'terminal_image'
+require 'irasutoya/cli/preview'
+require 'stringio'
 require 'tmpdir'
 
 RSpec.describe 'irasutoya download' do
@@ -12,8 +13,8 @@ RSpec.describe 'irasutoya download' do
   let(:image_urls) { %w[https://example.com/cat.png https://example.com/other/cat.png?size=large] }
   let(:image_data) { ["\x89PNG".b, "\xFF\xFE".b] }
   let(:directory) { File.join(@workspace, 'nested', 'images') }
-  let!(:link) { Irasutoya::IrasutoLink.new(title: nil, show_url: page_url) }
-  let(:http) { instance_double(Net::HTTP) }
+  let(:link) { Irasutoya::IrasutoLink.new(title: nil, show_url: page_url) }
+  let(:http) { instance_double(Net::HTTP, finish: nil) }
   let(:request_headers) { { 'Accept-Encoding' => 'identity' } }
 
   around do |example|
@@ -29,7 +30,7 @@ RSpec.describe 'irasutoya download' do
     allow(Irasutoya::IrasutoLink).to receive(:new).with(title: nil, show_url: page_url).and_return(link)
     allow(link).to receive(:fetch_page_and_parse).with(page_url).and_return(page)
     allow(Net::HTTP).to receive(:start).with('example.com', 443, use_ssl: true, max_retries: 0,
-                                           ignore_eof: false).and_yield(http)
+                                           ignore_eof: false).and_return(http)
     image_urls.zip(image_data).each do |url, data|
       next unless data
 
@@ -40,7 +41,7 @@ RSpec.describe 'irasutoya download' do
 
   it 'saves every image, reports the paths, and skips the preview renderer' do
     allow($stdout).to receive(:tty?).and_return(true)
-    expect(TerminalImage).not_to receive(:show)
+    expect(Irasutoya::Cli::Preview).not_to receive(:show)
     paths = %w[cat.png cat-1.png].map { |name| File.join(directory, name) }
 
     expect { run_download }.to output(paths.map { |path| "Saved: #{path}\n" }.join).to_stdout
@@ -140,11 +141,31 @@ RSpec.describe 'irasutoya download' do
   end
 
   it 'keeps completed images and removes the temporary file when a download fails' do
-    allow(http).to receive(:request_get).with(URI.parse(image_urls.last).request_uri, request_headers)
-                                       .and_raise(IOError, 'download failed')
+    response = stub_image(image_urls.last, image_data.last)
+    allow(response).to receive(:read_body) do |&receive_chunk|
+      receive_chunk.call('partial')
+      expect(Dir.children(directory).grep(/\.png$/)).to eq(['cat.png'])
+      raise IOError, 'download failed'
+    end
 
     expect { run_download }.to raise_error(IOError, 'download failed')
     expect(Dir.children(directory)).to eq(['cat.png'])
+  end
+
+  it 'reports an image HTTP failure once and only announces and keeps the completed image' do
+    response = Net::HTTPNotFound.new('1.1', '404', 'Not Found')
+    allow(http).to receive(:request_get).with(URI.parse(image_urls.last).request_uri, request_headers)
+                                       .and_yield(response)
+    path = File.join(directory, 'cat.png')
+    stub_const('ARGV', ['download', page_url, '--output', directory])
+    executable = File.expand_path('../../exe/irasutoya', __dir__)
+
+    expect do
+      expect { load executable }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+    end.to output("Could not fetch image #{image_urls.last}: 404 \"Not Found\"\n").to_stderr
+      .and output("Saved: #{path}\n").to_stdout
+    expect(Dir.children(directory)).to eq(['cat.png'])
+    expect(File.binread(path)).to eq(image_data.first)
   end
 
   it 'stops reading an oversized response without Content-Length and removes its temporary file' do
@@ -186,6 +207,31 @@ RSpec.describe 'irasutoya download' do
     expect(Dir.children(directory)).to be_empty
   end
 
+  it 'rejects a redirect to a non-HTTP destination before starting another request' do
+    allow(http).to receive(:request_get).with('/cat.png', request_headers)
+                                       .and_yield(redirect_to('file:///cat.png'))
+    expect(Net::HTTP).to receive(:start).once.and_return(http)
+    images = Nokogiri::HTML('<div class="entry"><img src="http://example.com/cat.png"></div>')
+    allow(link).to receive(:fetch_page_and_parse).with(page_url).and_return(images)
+
+    expect do
+      expect { run_download }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+    end.to output("Image download redirect must use HTTPS\n").to_stderr
+    expect(Dir.children(directory)).to be_empty
+  end
+
+  it 'stops following redirects at the download limit and removes the temporary file' do
+    paths = ['/cat.png', *(1..6).map { |index| "/#{index}.png" }]
+    paths.each_cons(2) do |source, target|
+      expect(http).to receive(:request_get).with(source, request_headers).ordered.and_yield(redirect_to(target))
+    end
+
+    expect do
+      expect { run_download }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+    end.to output("Too many image download redirects\n").to_stderr
+    expect(Dir.children(directory)).to be_empty
+  end
+
   it 'cannot save an image when the destination filesystem rejects hard links' do
     allow(File).to receive(:link).with(anything, File.join(directory, 'cat.png')) do |source, _destination|
       expect(File.binread(source)).to eq(image_data.first)
@@ -197,8 +243,13 @@ RSpec.describe 'irasutoya download' do
   end
 
   it 'reports a truncated image URL and only announces and keeps the completed image' do
-    response = stub_image(image_urls.last, 'short')
-    response['content-length'] = '12'
+    allow(http).to receive(:request_get).with(URI.parse(image_urls.last).request_uri, request_headers) do |&read_response|
+      wire = StringIO.new("HTTP/1.1 200 OK\r\nContent-Length: 12\r\n\r\nshort")
+      socket = Net::BufferedIO.new(wire)
+      response = Net::HTTPResponse.read_new(socket)
+      response.ignore_eof = false
+      response.reading_body(socket, true) { read_response.call(response) }
+    end
 
     expect do
       expect do
@@ -208,6 +259,32 @@ RSpec.describe 'irasutoya download' do
     expect(Dir.children(directory)).to eq(['cat.png'])
   end
 
+  it 'reports a missing illustration page once and exits before creating the destination' do
+    allow(link).to receive(:fetch_irasuto).and_raise(OpenURI::HTTPError.new('404 Not Found', nil))
+
+    expect do
+      expect { run_download }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+    end.to output("Could not fetch illustration page #{page_url}: 404 Not Found\n").to_stderr
+      .and output('').to_stdout
+    expect(File.exist?(File.dirname(directory))).to be(false)
+  end
+
+  it 'rejects a complete partial response without saving or announcing the image' do
+    response = Net::HTTPPartialContent.new('1.1', '206', 'Partial Content')
+    response['content-length'] = '5'
+    response['content-range'] = 'bytes 5-9/12'
+    allow(http).to receive(:request_get).with(URI.parse(image_urls.first).request_uri, request_headers)
+                                       .and_yield(response)
+    expect(response).not_to receive(:read_body)
+
+    expect do
+      expect do
+        expect { run_download }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      end.to output("Incomplete image download from #{image_urls.first}: HTTP 206 Partial Content\n").to_stderr
+    end.to output('').to_stdout
+    expect(Dir.children(directory)).to be_empty
+  end
+
   it 'uses chunked framing when both Transfer-Encoding and Content-Length are present' do
     response = stub_image(image_urls.last, image_data.last)
     response['transfer-encoding'] = 'chunked'
@@ -215,6 +292,24 @@ RSpec.describe 'irasutoya download' do
 
     expect { run_download }.to output(/cat\.png\n.*cat-1\.png\n/m).to_stdout
     expect(File.binread(File.join(directory, 'cat-1.png'))).to eq(image_data.last)
+  end
+
+  context 'when the filename exceeds the 255-byte component limit' do
+    let(:filename) { "#{'a' * 252}.png" }
+    let(:image_urls) { ["https://example.com/#{filename}"] }
+
+    it 'shortens the first filename and preserves that file on a second download' do
+      first_path = File.join(directory, "#{'a' * 251}.png")
+      second_path = File.join(directory, "#{'a' * 249}-1.png")
+
+      expect { run_download }.to output("Saved: #{first_path}\n").to_stdout
+      expect(File.binread(first_path)).to eq(image_data.first)
+
+      stub_image(image_urls.first, image_data.last)
+      expect { run_download }.to output("Saved: #{second_path}\n").to_stdout
+      expect([first_path, second_path].map { |path| File.binread(path) }).to eq(image_data)
+      expect(Dir.children(directory)).to match_array([File.basename(first_path), File.basename(second_path)])
+    end
   end
 
   context 'when the filename reaches the 255-byte component limit' do
@@ -289,5 +384,9 @@ RSpec.describe 'irasutoya download' do
     allow(response).to receive(:read_body).and_yield(data)
     allow(http).to receive(:request_get).with(URI.parse(url).request_uri, request_headers).and_yield(response)
     response
+  end
+
+  def redirect_to(location)
+    Net::HTTPFound.new('1.1', '302', 'Found').tap { |response| response['location'] = location }
   end
 end

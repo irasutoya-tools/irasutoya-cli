@@ -2,6 +2,7 @@
 
 require 'irasutoya'
 require 'irasutoya/cli/illustration'
+require 'irasutoya/cli/preview'
 require 'net/http'
 require 'open-uri'
 require 'terminal_image'
@@ -51,6 +52,7 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
 
     let(:runner) { Irasutoya::Cli::Runner.new([], {}, shell: Thor::Shell::Basic.new) }
     let(:image_data) { %w[first other] }
+    let(:headers) { { 'Accept-Encoding' => 'identity' } }
     let(:http) { instance_double(Net::HTTP, finish: nil) }
     let(:responses) do
       irasuto.image_urls.zip(image_data).to_h do |url, data|
@@ -72,15 +74,15 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
 
     before do
       stub_const('Irasutoya::Cli::Runner::MAX_PREVIEW_BYTES', image_data.first.bytesize)
-      allow(Net::HTTP).to receive(:start).with('example.com', 443, use_ssl: true, max_retries: 0).and_return(http)
-      responses.each { |path, response| allow(http).to receive(:request_get).with(path).and_yield(response) }
-      allow(TerminalImage).to receive(:show)
+      allow(Net::HTTP).to receive(:start).with('example.com', 443, use_ssl: true, max_retries: 0, ignore_eof: false).and_return(http)
+      responses.each { |path, response| allow(http).to receive(:request_get).with(path, headers).and_yield(response) }
+      allow(Irasutoya::Cli::Preview).to receive(:show)
     end
 
     shared_examples_for 'a command displays irasuto' do
       it 'prints metadata without downloading or rendering when stdout is redirected' do
         expect(Net::HTTP).not_to receive(:start)
-        expect(TerminalImage).not_to receive(:show)
+        expect(Irasutoya::Cli::Preview).not_to receive(:show)
 
         expect do
           allow($stdout).to receive(:tty?).and_return(false)
@@ -119,7 +121,7 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
         end
 
         it 'escapes metadata controls while preserving Japanese text and renderer output' do
-          allow(TerminalImage).to receive(:show) { print "\e[0m" }
+          allow(Irasutoya::Cli::Preview).to receive(:show) { print "\e[0m" }
 
           expect do
             allow($stdout).to receive(:tty?).and_return(true)
@@ -130,7 +132,7 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
 
       it 'renders each image at the byte limit and removes its temporary file' do
         rendered_images = []
-        allow(TerminalImage).to receive(:show) { |file| rendered_images << file.read }
+        allow(Irasutoya::Cli::Preview).to receive(:show) { |file| rendered_images << file.read }
         expect do
           allow($stdout).to receive(:tty?).and_return(true)
           subject
@@ -141,14 +143,14 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
 
       it 'stops reading an oversized image without Content-Length and renders the next image' do
         oversized = Net::HTTPOK.new('1.1', '200', 'OK')
-        allow(http).to receive(:request_get).with('/test.png').and_yield(oversized)
+        allow(http).to receive(:request_get).with('/test.png', headers).and_yield(oversized)
         allow(oversized).to receive(:read_body) do |&read_chunk|
           read_chunk.call(image_data.first)
           read_chunk.call('x')
           raise 'Download continued past the byte limit'
         end
 
-        expect(TerminalImage).to receive(:show).once do |file|
+        expect(Irasutoya::Cli::Preview).to receive(:show).once do |file|
           expect(file.read).to eq(image_data.last)
         end
         warning = "warn: Image preview exceeds the #{image_data.first.bytesize}-byte limit\n"
@@ -163,12 +165,12 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
         redirect = Net::HTTPFound.new('1.1', '302', 'Found')
         redirect['location'] = '/redirected.png'
         redirect['content-length'] = '10'
-        allow(http).to receive(:request_get).with('/test.png').and_yield(redirect)
+        allow(http).to receive(:request_get).with('/test.png', headers).and_yield(redirect)
         expect(redirect).not_to receive(:read_body)
-        expect(http).to receive(:request_get).with('/redirected.png').and_yield(responses.fetch('/test.png'))
+        expect(http).to receive(:request_get).with('/redirected.png', headers).and_yield(responses.fetch('/test.png'))
         expect(Net::HTTP).to receive(:start).twice.and_return(http)
         expect(http).to receive(:finish).twice
-        expect(TerminalImage).to receive(:show).twice
+        expect(Irasutoya::Cli::Preview).to receive(:show).twice
 
         expect do
           allow($stdout).to receive(:tty?).and_return(true)
@@ -179,16 +181,16 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
       it 'rejects a redirect to HTTP before connecting to its destination' do
         redirect = Net::HTTPFound.new('1.1', '302', 'Found')
         redirect['location'] = 'http://other.example.com/image.png'
-        allow(http).to receive(:request_get).with('/test.png').and_yield(redirect)
-        expect(Net::HTTP).to receive(:start).with('example.com', 443, use_ssl: true, max_retries: 0).once
-        expect(TerminalImage).not_to receive(:show)
+        allow(http).to receive(:request_get).with('/test.png', headers).and_yield(redirect)
+        expect(Net::HTTP).to receive(:start).with('example.com', 443, use_ssl: true, max_retries: 0, ignore_eof: false).once
+        expect(Irasutoya::Cli::Preview).not_to receive(:show)
 
         allow($stdout).to receive(:tty?).and_return(true)
-        expect { subject }.to raise_error(Irasutoya::Cli::Error, 'Image preview redirect must use HTTPS')
+        expect { subject }.to raise_error(Irasutoya::Cli::Error, 'Image redirect must use HTTPS')
       end
 
       it 'removes the temporary file when downloading fails' do
-        allow(http).to receive(:request_get).with('/test.png').and_raise(IOError, 'download failed')
+        allow(http).to receive(:request_get).with('/test.png', headers).and_raise(IOError, 'download failed')
 
         allow($stdout).to receive(:tty?).and_return(true)
         expect { subject }.to raise_error(IOError, 'download failed')
@@ -196,7 +198,7 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
       end
 
       it 'removes the temporary file when rendering fails' do
-        allow(TerminalImage).to receive(:show).and_raise(IOError, 'render failed')
+        allow(Irasutoya::Cli::Preview).to receive(:show).and_raise(IOError, 'render failed')
 
         allow($stdout).to receive(:tty?).and_return(true)
         expect { subject }.to raise_error(IOError, 'render failed')
@@ -284,13 +286,13 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
           allow(Irasutoya::Irasuto).to receive(:search).and_return([irasuto_link, next_link])
           next_response = Net::HTTPOK.new('1.1', '200', 'OK')
           allow(next_response).to receive(:read_body).and_yield('next')
-          allow(http).to receive(:request_get).with('/next.png').and_yield(next_response)
+          allow(http).to receive(:request_get).with('/next.png', headers).and_yield(next_response)
         end
 
         shared_examples 'a recoverable preview failure' do
           it 'warns, renders later previews in order, and removes the temporary files' do
             [image_data.last, 'next'].each do |data|
-              expect(TerminalImage).to receive(:show).ordered { |file| expect(file.read).to eq(data) }
+              expect(Irasutoya::Cli::Preview).to receive(:show).ordered { |file| expect(file.read).to eq(data) }
             end
 
             warning = "warn: Could not preview #{irasuto.image_urls.first}: #{message}\n"
@@ -314,7 +316,19 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
 
           before do
             missing = Net::HTTPNotFound.new('1.1', '404', 'Not Found')
-            allow(http).to receive(:request_get).with('/test.png').and_yield(missing)
+            allow(http).to receive(:request_get).with('/test.png', headers).and_yield(missing)
+          end
+
+          include_examples 'a recoverable preview failure'
+        end
+
+        context 'when an image download returns partial content' do
+          let(:message) { 'HTTP 206 Partial Content' }
+
+          before do
+            partial = Net::HTTPPartialContent.new('1.1', '206', 'Partial Content')
+            allow(http).to receive(:request_get).with('/test.png', headers).and_yield(partial)
+            expect(partial).not_to receive(:read_body)
           end
 
           include_examples 'a recoverable preview failure'
@@ -338,7 +352,7 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
           context "when rendering raises #{error_class}" do
             let(:message) { 'preview failed' }
 
-            before { expect(TerminalImage).to receive(:show).ordered.and_raise(error_class, message) }
+            before { expect(Irasutoya::Cli::Preview).to receive(:show).ordered.and_raise(error_class, message) }
 
             include_examples 'a recoverable preview failure'
           end

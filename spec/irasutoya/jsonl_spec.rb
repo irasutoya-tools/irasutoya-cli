@@ -3,7 +3,7 @@
 require 'irasutoya'
 require 'irasutoya/cli/illustration'
 require 'json'
-require 'terminal_image'
+require 'irasutoya/cli/preview'
 
 RSpec.describe 'JSON Lines output' do
   let(:runner) { Irasutoya::Cli::Runner }
@@ -25,7 +25,7 @@ RSpec.describe 'JSON Lines output' do
 
   it 'prints one line with Japanese metadata and all image URLs for random, even in a terminal' do
     allow(Irasutoya::Cli::Illustration).to receive(:random).and_return(illustration)
-    expect(TerminalImage).not_to receive(:show)
+    expect(Irasutoya::Cli::Preview).not_to receive(:show)
 
     expect do
       allow($stdout).to receive(:tty?).and_return(true)

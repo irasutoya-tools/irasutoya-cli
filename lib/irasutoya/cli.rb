@@ -4,18 +4,15 @@ require 'open-uri'
 require 'tempfile'
 require 'timeout'
 require 'irasutoya/cli/https_url'
-require 'irasutoya/cli/preview_sessions'
+require 'irasutoya/cli/image_transfer'
 require 'irasutoya/cli/terminal_output'
 require 'irasutoya/cli/version'
 require 'thor'
 
 module Irasutoya
   module Cli
-    class Error < StandardError; end
-
     class Runner < Thor
       MAX_PREVIEW_BYTES = 10 * 1024 * 1024
-      MAX_PREVIEW_REDIRECTS = 5
       JSONL_OPTION = { type: :boolean, desc: 'Print one JSON object per result' }.freeze
       class PreviewTooLarge < Error; end
 
@@ -68,7 +65,7 @@ module Irasutoya
       def display(irasuto)
         return display_jsonl(irasuto) if options[:jsonl]
 
-        require 'terminal_image'
+        require 'irasutoya/cli/preview'
 
         display_metadata(irasuto)
         return unless $stdout.tty?
@@ -97,44 +94,32 @@ module Irasutoya
       end
 
       def show_preview(image_url)
-        require 'net/http'
-
         Tempfile.create(binmode: true) do |file|
           download_preview(HttpsUrl.parse(image_url), file)
-          TerminalImage.show(file.tap(&:rewind))
+          Preview.show(file.tap(&:rewind))
         end
       rescue PreviewTooLarge
         say "warn: Image preview exceeds the #{MAX_PREVIEW_BYTES}-byte limit", :yellow
-      rescue Net::HTTPExceptions, Net::OpenTimeout, Net::ReadTimeout, Net::WriteTimeout,
+      rescue ImageTransfer::ResponseError, Net::OpenTimeout, Net::ReadTimeout, Net::WriteTimeout,
              TerminalImage::UnsupportedFormat, TerminalImage::UnsupportedTerminal => e
         say "warn: Could not preview #{image_url}: #{e.message}", :yellow
       end
 
-      def download_preview(uri, file, redirects_left = MAX_PREVIEW_REDIRECTS)
-        redirect = @preview_sessions.get(uri) { |response| write_preview(response, file) }
-        return unless redirect
-        raise Error, 'Too many image preview redirects' if redirects_left.zero?
-
-        location = uri + redirect
-        raise Error, 'Image preview redirect must use HTTPS' unless location.is_a?(URI::HTTPS) && location.host
-
-        download_preview(location, file, redirects_left - 1)
-      end
-
       def with_preview_sessions
-        @preview_sessions = PreviewSessions.new
-        yield
-      ensure
-        @preview_sessions.close
+        ImageTransfer.with_sessions do |transfer|
+          @preview_transfer = transfer
+          yield
+        end
       end
 
-      def write_preview(response, file)
-        response.value
-        response.read_body do |chunk|
+      def download_preview(uri, file)
+        @preview_transfer.fetch(uri) do |chunk|
           raise PreviewTooLarge if file.pos + chunk.bytesize > MAX_PREVIEW_BYTES
 
           file.write(chunk)
         end
+      rescue EOFError => e
+        raise ImageTransfer::ResponseError, e.message
       end
     end
   end

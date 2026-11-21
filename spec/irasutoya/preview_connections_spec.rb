@@ -5,7 +5,7 @@ require 'irasutoya/cli/illustration'
 require 'net/http'
 require 'openssl'
 require 'socket'
-require 'terminal_image'
+require 'irasutoya/cli/preview'
 
 RSpec.describe Irasutoya::Cli::Runner do
   let(:runner) { described_class.new([], {}, shell: Thor::Shell::Basic.new) }
@@ -33,7 +33,7 @@ RSpec.describe Irasutoya::Cli::Runner do
   before do
     allow($stdout).to receive(:tty?).and_return(true)
     allow(runner).to receive(:say)
-    allow(TerminalImage).to receive(:show) { |file| rendered << file.read }
+    allow(Irasutoya::Cli::Preview).to receive(:show) { |file| rendered << file.read }
     store = OpenSSL::X509::Store.new
     store.add_cert(certificate)
     allow(Net::HTTP).to receive(:start).and_wrap_original do |start, host, port, **options|
@@ -59,29 +59,52 @@ RSpec.describe Irasutoya::Cli::Runner do
     end
   end
 
+  it 'warns once when a connection closes before headers and continues previewing search results' do
+    serve_previews(
+      [['/closed.png']],
+      [['/first.png', '200 OK', {}, 'first'], ['/second.png', '200 OK', {}, 'second']]
+    ) do |origin|
+      closed_url = "#{origin}/closed.png"
+      later_url = "#{origin}/second.png"
+      results = [illustration(closed_url, "#{origin}/first.png"), illustration(later_url)]
+      links = results.map { |result| instance_double(Irasutoya::IrasutoLink, show_url: result.url, fetch_irasuto: result) }
+      allow(Irasutoya::Irasuto).to receive(:search).with(query: 'query').and_return(links)
+
+      runner.search('query')
+
+      expect(runner).to have_received(:say).with(start_with("warn: Could not preview #{closed_url}:"), :yellow).once
+      expect(runner).to have_received(:say).with("Page URL:    #{later_url}")
+      expect(rendered).to eq(%w[first second])
+    end
+  end
+
   it 'uses a separate connection across origins and closes both sessions when rendering fails' do
     serve_previews([['/image.png', '200 OK', {}, 'image']]) do |target|
       serve_previews([['/redirect.png', '302 Found', { 'Location' => "#{target}/image.png" }, '']]) do |origin|
         allow(Irasutoya::Cli::Illustration).to receive(:random).and_return(illustration("#{origin}/redirect.png"))
-        allow(TerminalImage).to receive(:show).and_raise(IOError, 'render failed')
+        allow(Irasutoya::Cli::Preview).to receive(:show).and_raise(IOError, 'render failed')
 
         expect { runner.random }.to raise_error(IOError, 'render failed')
       end
     end
   end
 
-  def illustration(image_url)
-    Irasutoya::Irasuto.new(url: image_url, title: 'Title', description: 'Description', image_urls: [image_url])
+  def illustration(*image_urls)
+    Irasutoya::Irasuto.new(url: image_urls.first, title: 'Title', description: 'Description', image_urls:)
   end
 
-  def serve_previews(responses)
+  def serve_previews(*connections)
     TCPServer.open('127.0.0.1', 0) do |server|
       worker = Thread.new do
-        socket = OpenSSL::SSL::SSLServer.new(server, tls_context).accept
-        responses.each { |response| respond_to_preview(socket, *response) }
-        expect(socket.gets).to be_nil
-      ensure
-        socket&.close
+        tls_server = OpenSSL::SSL::SSLServer.new(server, tls_context)
+        connections.each do |responses|
+          tls_server.accept.tap do |socket|
+            responses.each { |response| respond_to_preview(socket, *response) }
+            expect(socket.gets).to be_nil if responses.last.length > 1
+          ensure
+            socket.close
+          end
+        end
       end
       begin
         yield "https://127.0.0.1:#{server.addr[1]}"
@@ -92,9 +115,11 @@ RSpec.describe Irasutoya::Cli::Runner do
     end
   end
 
-  def respond_to_preview(socket, path, status, headers, body)
+  def respond_to_preview(socket, path, status = nil, headers = {}, body = '')
     expect(socket.gets).to eq("GET #{path} HTTP/1.1\r\n")
     socket.to_enum(:each_line).take_while { |line| line != "\r\n" }
+    return unless status
+
     socket.write("HTTP/1.1 #{status}\r\nContent-Length: #{body.bytesize}\r\n")
     headers.each { |name, value| socket.write("#{name}: #{value}\r\n") }
     socket.write("\r\n#{body}")
