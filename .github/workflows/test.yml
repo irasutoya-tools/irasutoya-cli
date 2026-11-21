@@ -11,8 +11,7 @@ jobs:
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: .ruby-version
-      - name: Install dependencies
-        run: BUNDLE_FROZEN=true bundle install --jobs 4
+          bundler-cache: true
       - name: Check locked release helper
         run: BUNDLE_FROZEN=true bundle exec gem bump --help
       - name: Run lint
@@ -31,8 +30,7 @@ jobs:
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: ${{ matrix.ruby }}
-      - name: Install dependencies
-        run: BUNDLE_FROZEN=true bundle install --jobs 4
+          bundler-cache: true
       - name: Run test
         env:
           RAILS_ENV: test
