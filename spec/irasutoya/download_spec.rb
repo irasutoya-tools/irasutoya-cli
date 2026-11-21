@@ -135,7 +135,7 @@ RSpec.describe 'irasutoya download' do
   end
 
   it 'preserves existing files and skips occupied suffixes' do
-    stub_const('Irasutoya::Cli::Download::MAX_IMAGE_BYTES', image_data.first.bytesize)
+    stub_const('Irasutoya::Cli::ImageTransfer::MAX_IMAGE_BYTES', image_data.first.bytesize)
     FileUtils.mkdir_p(directory)
     File.binwrite(File.join(directory, 'cat.png'), 'original')
     File.binwrite(File.join(directory, 'cat-1.png'), 'also original')
@@ -195,7 +195,8 @@ RSpec.describe 'irasutoya download' do
   end
 
   it 'stops reading an oversized response without Content-Length and removes its temporary file' do
-    stub_const('Irasutoya::Cli::Download::MAX_IMAGE_BYTES', image_data.first.bytesize)
+    stub_const('Irasutoya::Cli::ImageTransfer::MAX_IMAGE_BYTES', image_data.first.bytesize)
+    expect(Net::HTTP).to receive(:start).once.and_return(http)
     response = stub_image(image_urls.last, image_data.last)
     allow(response).to receive(:read_body) do |&receive_chunk|
       receive_chunk.call(image_data.first)
@@ -206,6 +207,7 @@ RSpec.describe 'irasutoya download' do
     expect do
       expect { run_download }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
     end.to output("Image download exceeds the #{image_data.first.bytesize}-byte limit\n").to_stderr
+    expect(http).to have_received(:finish).once
     expect(Dir.children(directory)).to eq(['cat.png'])
     expect(File.binread(File.join(directory, 'cat.png'))).to eq(image_data.first)
   end

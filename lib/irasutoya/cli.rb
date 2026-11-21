@@ -12,9 +12,7 @@ require 'thor'
 module Irasutoya
   module Cli
     class Runner < Thor
-      MAX_PREVIEW_BYTES = 10 * 1024 * 1024
       JSONL_OPTION = { type: :boolean, desc: 'Print one JSON object per result' }.freeze
-      class PreviewTooLarge < Error; end
 
       def self.exit_on_failure?
         true
@@ -98,8 +96,8 @@ module Irasutoya
           download_preview(HttpsUrl.parse(image_url), file)
           Preview.show(file.tap(&:rewind))
         end
-      rescue PreviewTooLarge
-        say "warn: Image preview exceeds the #{MAX_PREVIEW_BYTES}-byte limit", :yellow
+      rescue ImageTransfer::SizeLimitExceededError
+        say "warn: Image preview exceeds the #{ImageTransfer::MAX_IMAGE_BYTES}-byte limit", :yellow
       rescue ImageTransfer::ResponseError, Net::OpenTimeout, Net::ReadTimeout, Net::WriteTimeout,
              TerminalImage::UnsupportedFormat, TerminalImage::UnsupportedTerminal => e
         say "warn: Could not preview #{image_url}: #{e.message}", :yellow
@@ -113,11 +111,7 @@ module Irasutoya
       end
 
       def download_preview(uri, file)
-        @preview_transfer.fetch(uri) do |chunk|
-          raise PreviewTooLarge if file.pos + chunk.bytesize > MAX_PREVIEW_BYTES
-
-          file.write(chunk)
-        end
+        @preview_transfer.copy(uri, file, max_bytes: ImageTransfer::MAX_IMAGE_BYTES)
       rescue EOFError => e
         raise ImageTransfer::ResponseError, e.message
       end
