@@ -12,9 +12,9 @@ module Irasutoya
 
       class ResponseError < Error; end
       class IncompleteBodyError < ResponseError; end
-      class InvalidSchemeError < Error; end
+      class InvalidSchemeError < ResponseError; end
       class TooManyRedirectsError < Error; end
-      class InsecureRedirectError < Error; end
+      class InsecureRedirectError < ResponseError; end
 
       def self.fetch(uri, &on_chunk)
         with_sessions { |transfer| transfer.fetch(uri, &on_chunk) }
@@ -32,7 +32,7 @@ module Irasutoya
       end
 
       def fetch(uri, &on_chunk)
-        raise InvalidSchemeError, 'Image URL must use HTTPS' unless https?(uri)
+        raise InvalidSchemeError, 'Image URL must use HTTPS' unless uri.is_a?(URI::HTTPS) && !uri.host.to_s.empty?
 
         MAX_REDIRECTS.downto(0) do |redirects_left|
           redirect = request(uri, &on_chunk)
@@ -56,7 +56,7 @@ module Irasutoya
           http.request_get(uri.request_uri, 'Accept-Encoding' => 'identity') do |response|
             next stream_image(response, &on_chunk) unless REDIRECT_CODES.include?(response.code)
 
-            redirect = response.fetch('location')
+            redirect = response
             return redirect unless empty_body?(response)
           end
         end
@@ -103,15 +103,29 @@ module Irasutoya
         raise IncompleteBodyError, e.message
       end
 
-      def redirect_uri(uri, location)
-        target = uri + location
-        raise InsecureRedirectError, 'Image redirect must use HTTPS' unless https?(target)
+      def redirect_uri(uri, response)
+        target = resolve_location(uri, response)
+        raise InsecureRedirectError, 'Image redirect must use HTTPS' unless target.is_a?(URI::HTTPS)
+
+        if target.host.to_s.empty? || !(1..65_535).cover?(target.port)
+          raise ResponseError, 'Image redirect has an invalid Location header'
+        end
 
         target
       end
 
-      def https?(uri)
-        uri.is_a?(URI::HTTPS) && uri.host
+      def resolve_location(uri, response)
+        location = response['location']&.strip
+        raise ResponseError, 'Image redirect is missing a Location header value' if location.nil? || location.empty?
+
+        reference = URI.parse(location)
+        if location.start_with?('//') && reference.host.to_s.empty?
+          raise ResponseError, 'Image redirect has an invalid Location header'
+        end
+
+        uri + reference
+      rescue URI::Error
+        raise ResponseError, 'Image redirect has an invalid Location header'
       end
     end
   end

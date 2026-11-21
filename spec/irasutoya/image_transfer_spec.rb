@@ -65,9 +65,9 @@ RSpec.describe Irasutoya::Cli::ImageTransfer do
     end.to raise_error(described_class::IncompleteBodyError, 'end of file reached')
   end
 
-  it 'rejects plaintext and non-HTTP image URLs before making a request' do
+  it 'rejects plaintext, non-HTTP, and hostless image URLs before making a request' do
     expect(Net::HTTP).not_to receive(:start)
-    %w[http://example.com/image.png file:///image.png].each do |url|
+    %w[http://example.com/image.png file:///image.png https:///image.png].each do |url|
       expect do
         described_class.fetch(URI(url)) { raise 'Unexpected image bytes' }
       end.to raise_error(described_class::InvalidSchemeError, 'Image URL must use HTTPS')

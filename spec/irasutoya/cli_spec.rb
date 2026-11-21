@@ -178,15 +178,18 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
         end.to output(expected).to_stdout
       end
 
-      it 'rejects a redirect to HTTP before connecting to its destination' do
+      it 'warns about an HTTP redirect and previews the next image without connecting to the redirect target' do
         redirect = Net::HTTPFound.new('1.1', '302', 'Found')
         redirect['location'] = 'http://other.example.com/image.png'
         allow(http).to receive(:request_get).with('/test.png', headers).and_yield(redirect)
-        expect(Net::HTTP).to receive(:start).with('example.com', 443, use_ssl: true, max_retries: 0, ignore_eof: false).once
-        expect(Irasutoya::Cli::Preview).not_to receive(:show)
+        expect(Net::HTTP).to receive(:start).with('example.com', 443, use_ssl: true, max_retries: 0, ignore_eof: false).twice
+        expect(Irasutoya::Cli::Preview).to receive(:show).once { |file| expect(file.read).to eq(image_data.last) }
 
-        allow($stdout).to receive(:tty?).and_return(true)
-        expect { subject }.to raise_error(Irasutoya::Cli::Error, 'Image redirect must use HTTPS')
+        warning = "warn: Could not preview #{irasuto.image_urls.first}: Image redirect must use HTTPS\n"
+        expect do
+          allow($stdout).to receive(:tty?).and_return(true)
+          subject
+        end.to output(expected + warning).to_stdout
       end
 
       it 'removes the temporary file when downloading fails' do
