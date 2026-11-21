@@ -39,7 +39,8 @@ module Irasutoya
       rescue URI::InvalidURIError
         raise Thor::Error, 'Provide an Irasutoya illustration page URL printed by search or random.'
       rescue OpenURI::HTTPError => e
-        raise Thor::Error, "Could not fetch illustration page #{@page_url}: #{e.message}"
+        message = "Could not fetch illustration page #{@page_url}: #{e.message}"
+        raise Thor::Error, TerminalOutput.escape_controls(message)
       end
 
       def save_image(url, next_suffixes)
