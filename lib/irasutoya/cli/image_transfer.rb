@@ -96,11 +96,16 @@ module Irasutoya
           bytes += chunk.bytesize
           yield chunk
         end
-        raise IncompleteBodyError, "expected #{length} bytes, received #{bytes}" if length && bytes < length
+        validate_body(length, bytes)
       rescue EOFError => e
         raise IncompleteBodyError, "expected #{length} bytes, received #{bytes}" if length && bytes < length
 
         raise IncompleteBodyError, e.message
+      end
+
+      def validate_body(length, bytes)
+        raise IncompleteBodyError, "expected #{length} bytes, received #{bytes}" if length && bytes < length
+        raise ResponseError, 'Empty image response' if bytes.zero?
       end
 
       def redirect_uri(uri, response)

@@ -242,6 +242,22 @@ RSpec.describe 'irasutoya download' do
     expect(Dir.children(directory)).to be_empty
   end
 
+  ["204 No Content\r\n", "200 OK\r\nContent-Length: 0\r\n"].each do |headers|
+    it "rejects an empty #{headers.lines.first.strip} response without saving or announcing the image" do
+      allow(http).to receive(:request_get).with('/cat.png', request_headers) do |&read_response|
+        socket = Net::BufferedIO.new(StringIO.new("HTTP/1.1 #{headers}\r\n"))
+        response = Net::HTTPResponse.read_new(socket)
+        response.reading_body(socket, true) { read_response.call(response) }
+      end
+
+      expect do
+        expect { run_download }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      end.to output("Could not fetch image #{image_urls.first}: Empty image response\n").to_stderr
+        .and output('').to_stdout
+      expect(Dir.children(directory)).to be_empty
+    end
+  end
+
   it 'reports a truncated image URL and only announces and keeps the completed image' do
     allow(http).to receive(:request_get).with(URI.parse(image_urls.last).request_uri, request_headers) do |&read_response|
       wire = StringIO.new("HTTP/1.1 200 OK\r\nContent-Length: 12\r\n\r\nshort")
