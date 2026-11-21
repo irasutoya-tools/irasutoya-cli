@@ -24,7 +24,9 @@ module Irasutoya
 
         FileUtils.mkdir_p(@directory)
         next_suffixes = Hash.new(0)
-        images.each { |url| yield save_image(url, next_suffixes) }
+        ImageTransfer.with_sessions do |transfer|
+          images.each { |url| yield save_image(url, next_suffixes, transfer) }
+        end
       end
 
       private
@@ -42,10 +44,10 @@ module Irasutoya
         raise Thor::Error, "Could not fetch illustration page #{@page_url}: #{e.message}"
       end
 
-      def save_image(url, next_suffixes)
+      def save_image(url, next_suffixes, transfer)
         uri = HttpsUrl.parse(url)
         Tempfile.create('.irasutoya-', @directory, binmode: true) do |file|
-          copy_image(uri, file)
+          copy_image(uri, file, transfer)
           file.flush
           link_image(file.path, image_filename(uri), next_suffixes)
         end
@@ -55,8 +57,8 @@ module Irasutoya
         raise Thor::Error, "Could not fetch image #{url}: #{e.message}"
       end
 
-      def copy_image(uri, destination)
-        ImageTransfer.fetch(uri) { |chunk| write_chunk(destination, chunk) }
+      def copy_image(uri, destination, transfer)
+        transfer.fetch(uri) { |chunk| write_chunk(destination, chunk) }
       rescue ImageTransfer::IncompleteBodyError => e
         raise Thor::Error, "Incomplete image download from #{uri}: #{e.message}"
       rescue ImageTransfer::TooManyRedirectsError
