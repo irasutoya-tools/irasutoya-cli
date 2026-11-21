@@ -1,17 +1,44 @@
 # frozen_string_literal: true
 
 require 'irasutoya'
+require 'irasutoya/cli/illustration'
+require 'net/http'
+require 'openssl'
 require 'socket'
 require 'irasutoya/cli/preview'
 
 RSpec.describe Irasutoya::Cli::Runner do
   let(:runner) { described_class.new([], {}, shell: Thor::Shell::Basic.new) }
   let(:rendered) { [] }
+  let(:key) { OpenSSL::PKey::RSA.new(2048) }
+  let(:certificate) do
+    OpenSSL::X509::Certificate.new.tap do |cert|
+      cert.version = 2
+      cert.serial = 1
+      cert.subject = cert.issuer = OpenSSL::X509::Name.parse('/CN=127.0.0.1')
+      cert.public_key = key.public_key
+      cert.not_before = Time.now - 60
+      cert.not_after = Time.now + 60
+      cert.add_extension(OpenSSL::X509::ExtensionFactory.new.create_extension('subjectAltName', 'IP:127.0.0.1'))
+      cert.sign(key, OpenSSL::Digest.new('SHA256'))
+    end
+  end
+  let(:tls_context) do
+    OpenSSL::SSL::SSLContext.new.tap do |context|
+      context.cert = certificate
+      context.key = key
+    end
+  end
 
   before do
     allow($stdout).to receive(:tty?).and_return(true)
     allow(runner).to receive(:say)
     allow(Irasutoya::Cli::Preview).to receive(:show) { |file| rendered << file.read }
+    store = OpenSSL::X509::Store.new
+    store.add_cert(certificate)
+    allow(Net::HTTP).to receive(:start).and_wrap_original do |start, host, port, **options|
+      start.call(host, port, **options, cert_store: store)
+    end
   end
 
   it 'reuses one connection across search results and follows a bodyless same-origin redirect' do
@@ -22,7 +49,7 @@ RSpec.describe Irasutoya::Cli::Runner do
     ]) do |origin|
       links = %w[first second].map do |name|
         result = illustration("#{origin}/#{name}.png")
-        instance_double(Irasutoya::IrasutoLink, fetch_irasuto: result)
+        instance_double(Irasutoya::IrasutoLink, show_url: result.url, fetch_irasuto: result)
       end
       allow(Irasutoya::Irasuto).to receive(:search).with(query: 'query').and_return(links)
 
@@ -40,7 +67,7 @@ RSpec.describe Irasutoya::Cli::Runner do
       closed_url = "#{origin}/closed.png"
       later_url = "#{origin}/second.png"
       results = [illustration(closed_url, "#{origin}/first.png"), illustration(later_url)]
-      links = results.map { |result| instance_double(Irasutoya::IrasutoLink, fetch_irasuto: result) }
+      links = results.map { |result| instance_double(Irasutoya::IrasutoLink, show_url: result.url, fetch_irasuto: result) }
       allow(Irasutoya::Irasuto).to receive(:search).with(query: 'query').and_return(links)
 
       runner.search('query')
@@ -72,7 +99,7 @@ RSpec.describe Irasutoya::Cli::Runner do
   it 'uses a separate connection across origins and closes both sessions when rendering fails' do
     serve_previews([['/image.png', '200 OK', {}, 'image']]) do |target|
       serve_previews([['/redirect.png', '302 Found', { 'Location' => "#{target}/image.png" }, '']]) do |origin|
-        allow(Irasutoya::Irasuto).to receive(:random).and_return(illustration("#{origin}/redirect.png"))
+        allow(Irasutoya::Cli::Illustration).to receive(:random).and_return(illustration("#{origin}/redirect.png"))
         allow(Irasutoya::Cli::Preview).to receive(:show).and_raise(IOError, 'render failed')
 
         expect { runner.random }.to raise_error(IOError, 'render failed')
@@ -80,26 +107,28 @@ RSpec.describe Irasutoya::Cli::Runner do
     end
   end
 
-  {
-    'missing' => {},
-    'blank' => { 'Location' => '' },
-    'invalid' => { 'Location' => 'http://[' },
-    'hostless' => { 'Location' => 'http:///image.png' },
-    'missing its authority' => { 'Location' => '///image.png' },
-    'using an out-of-range port' => { 'Location' => 'http://127.0.0.1:65536/image.png' },
-    'non-HTTP' => { 'Location' => 'file:///image.png' }
-  }.each do |kind, headers|
+  [
+    ['missing', nil, 'is missing a Location header value'],
+    ['blank', '', 'is missing a Location header value'],
+    ['invalid', 'https://[', 'has an invalid Location header'],
+    ['hostless', 'https:///image.png', 'has an invalid Location header'],
+    ['missing its authority', '///image.png', 'has an invalid Location header'],
+    ['using an out-of-range port', 'https://127.0.0.1:65536/image.png', 'has an invalid Location header'],
+    ['non-HTTPS', 'http://127.0.0.1/image.png', 'must use HTTPS'],
+    ['non-HTTP', 'file:///image.png', 'must use HTTPS']
+  ].each do |kind, location, error|
     it "warns once and renders the next image when the redirect location is #{kind}" do
+      headers = location.nil? ? {} : { 'Location' => location }
       serve_previews([
         ['/first.png', '302 Found', headers, ''],
         ['/second.png', '200 OK', {}, 'second']
       ]) do |origin|
         first = "#{origin}/first.png"
-        allow(Irasutoya::Irasuto).to receive(:random).and_return(illustration(first, "#{origin}/second.png"))
+        allow(Irasutoya::Cli::Illustration).to receive(:random).and_return(illustration(first, "#{origin}/second.png"))
 
         runner.random
 
-        expect(runner).to have_received(:say).with(start_with("warn: Could not preview #{first}:"), :yellow).once
+        expect(runner).to have_received(:say).with("warn: Could not preview #{first}: Image redirect #{error}", :yellow).once
         expect(runner).to have_received(:say).with(start_with('warn:'), :yellow).once
         expect(rendered).to eq(['second'])
       end
@@ -113,8 +142,9 @@ RSpec.describe Irasutoya::Cli::Runner do
   def serve_previews(*connections)
     TCPServer.open('127.0.0.1', 0) do |server|
       worker = Thread.new do
+        tls_server = OpenSSL::SSL::SSLServer.new(server, tls_context)
         connections.each do |responses|
-          server.accept.tap do |socket|
+          tls_server.accept.tap do |socket|
             responses.each { |response| respond_to_preview(socket, *response) }
             expect(socket.gets).to be_nil if responses.last.length > 1
           ensure
@@ -123,7 +153,7 @@ RSpec.describe Irasutoya::Cli::Runner do
         end
       end
       begin
-        yield "http://127.0.0.1:#{server.addr[1]}"
+        yield "https://127.0.0.1:#{server.addr[1]}"
         expect(worker.join(5)).to eq(worker)
       ensure
         worker.kill.join if worker.alive?
@@ -133,7 +163,7 @@ RSpec.describe Irasutoya::Cli::Runner do
 
   def respond_to_preview(socket, path, status = nil, headers = {}, body = '', delay = nil)
     expect(socket.gets).to eq("GET #{path} HTTP/1.1\r\n")
-    socket.each_line.take_while { |line| line != "\r\n" }
+    socket.to_enum(:each_line).take_while { |line| line != "\r\n" }
     return unless status
 
     socket.write("HTTP/1.1 #{status}\r\nContent-Length: #{body.bytesize}\r\n")
