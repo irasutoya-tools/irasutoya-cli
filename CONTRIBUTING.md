@@ -15,6 +15,7 @@ bundle install
 ```
 
 Run the CLI from your checkout with `bundle exec exe/irasutoya help`.
+See the [CLI architecture guide](docs/architecture.md) for where to start reading the code.
 
 ## Run the checks
 
