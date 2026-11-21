@@ -39,9 +39,14 @@ RSpec.describe 'irasutoya download' do
     end
   end
 
-  it 'saves every image, reports the paths, and skips the preview renderer' do
+  it 'reuses one session, reports saved paths in order, and skips the preview renderer' do
     allow($stdout).to receive(:tty?).and_return(true)
     expect(Irasutoya::Cli::Preview).not_to receive(:show)
+    expect(Net::HTTP).to receive(:start).once.and_return(http)
+    image_urls.each do |url|
+      expect(http).to receive(:request_get).with(URI.parse(url).request_uri, request_headers).ordered
+    end
+    expect(http).to receive(:finish).once.ordered
     paths = %w[cat.png cat-1.png].map { |name| File.join(directory, name) }
 
     expect { run_download }.to output(paths.map { |path| "Saved: #{path}\n" }.join).to_stdout
@@ -141,15 +146,19 @@ RSpec.describe 'irasutoya download' do
   end
 
   it 'keeps completed images and removes the temporary file when a download fails' do
+    expect(Net::HTTP).to receive(:start).once.and_return(http)
     response = stub_image(image_urls.last, image_data.last)
     allow(response).to receive(:read_body) do |&receive_chunk|
       receive_chunk.call('partial')
       expect(Dir.children(directory).grep(/\.png$/)).to eq(['cat.png'])
+      expect(http).not_to have_received(:finish)
       raise IOError, 'download failed'
     end
 
     expect { run_download }.to raise_error(IOError, 'download failed')
+    expect(http).to have_received(:finish).once
     expect(Dir.children(directory)).to eq(['cat.png'])
+    expect(File.binread(File.join(directory, 'cat.png'))).to eq(image_data.first)
   end
 
   it 'exits on the transfer deadline and keeps only the completed image' do
@@ -187,6 +196,7 @@ RSpec.describe 'irasutoya download' do
 
   it 'stops reading an oversized response without Content-Length and removes its temporary file' do
     stub_const('Irasutoya::Cli::ImageTransfer::MAX_IMAGE_BYTES', image_data.first.bytesize)
+    expect(Net::HTTP).to receive(:start).once.and_return(http)
     response = stub_image(image_urls.last, image_data.last)
     allow(response).to receive(:read_body) do |&receive_chunk|
       receive_chunk.call(image_data.first)
@@ -197,6 +207,7 @@ RSpec.describe 'irasutoya download' do
     expect do
       expect { run_download }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
     end.to output("Image download exceeds the #{image_data.first.bytesize}-byte limit\n").to_stderr
+    expect(http).to have_received(:finish).once
     expect(Dir.children(directory)).to eq(['cat.png'])
     expect(File.binread(File.join(directory, 'cat.png'))).to eq(image_data.first)
   end
@@ -256,6 +267,7 @@ RSpec.describe 'irasutoya download' do
     end
 
     expect { run_download }.to raise_error(Errno::EOPNOTSUPP)
+    expect(http).to have_received(:finish).once
     expect(Dir.children(directory)).to be_empty
   end
 
