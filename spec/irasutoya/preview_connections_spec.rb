@@ -123,6 +123,33 @@ RSpec.describe Irasutoya::Cli::Runner do
     end
   end
 
+  it 'closes the least recently used session before opening another origin' do
+    stub_const('Irasutoya::Cli::ImageTransfer::SessionCache::MAX_SESSIONS', 2)
+    sessions = []
+    store = OpenSSL::X509::Store.new
+    store.add_cert(certificate)
+    allow(Net::HTTP).to receive(:start).and_wrap_original do |start, host, port, **options|
+      expect(sessions.count(&:started?)).to be < 2
+      start.call(host, port, **options, cert_store: store).tap { |http| sessions << http }
+    end
+
+    serve_previews(%w[a1 a2 a3 a4].map { |name| ["/#{name}.png", '200 OK', {}, name] }) do |first|
+      serve_previews([['/b1.png', '200 OK', {}, 'b1']], [['/b2.png', '200 OK', {}, 'b2']]) do |second|
+        serve_previews([['/c1.png', '200 OK', {}, 'c1']]) do |third|
+          urls = ["#{first}/a1.png", "#{first}/a2.png", "#{second}/b1.png", "#{first}/a3.png",
+                  "#{third}/c1.png", "#{first}/a4.png", "#{second}/b2.png"]
+          allow(Irasutoya::Cli::Illustration).to receive(:random).and_return(illustration(*urls))
+
+          runner.random
+
+          expect(rendered).to eq(%w[a1 a2 b1 a3 c1 a4 b2])
+          expect(sessions.size).to eq(4)
+          expect(sessions).to all(have_attributes(started?: false))
+        end
+      end
+    end
+  end
+
   [
     ['missing', nil, 'is missing a Location header value'],
     ['blank', '', 'is missing a Location header value'],
