@@ -13,7 +13,9 @@ RSpec.describe 'irasutoya download' do
   let(:image_urls) { %w[https://example.com/cat.png https://example.com/other/cat.png?size=large] }
   let(:image_data) { ["\x89PNG".b, "\xFF\xFE".b] }
   let(:directory) { File.join(@workspace, 'nested', 'images') }
-  let(:link) { Irasutoya::IrasutoLink.new(title: nil, show_url: page_url) }
+  let(:link) do
+    Irasutoya::IrasutoLink.new(title: nil, show_url: page_url).extend(Irasutoya::Cli::HtmlPage)
+  end
   let(:http) { instance_double(Net::HTTP, finish: nil) }
   let(:request_headers) { { 'Accept-Encoding' => 'identity' } }
 
@@ -80,12 +82,16 @@ RSpec.describe 'irasutoya download' do
 
   it 'rejects an HTTP redirect from the page before contacting the destination' do
     allow(link).to receive(:fetch_page_and_parse).and_call_original
-    destination = URI.parse('http://other.example.com/resource')
-    expect(OpenURI).to receive(:open_http).with(anything, URI.parse(page_url), anything, anything).once do
-      throw :open_uri_redirect, destination
-    end
+    page_http = instance_double(Net::HTTP)
+    expect(Net::HTTP).to receive(:start).with('www.irasutoya.com', 443, use_ssl: true, max_retries: 0,
+                                              ignore_eof: false).once.and_yield(page_http)
+    redirect = Net::HTTPFound.new('1.1', '302', 'Found')
+    redirect['location'] = 'http://other.example.com/resource'
+    expect(page_http).to receive(:request_get).with(URI(page_url).request_uri, request_headers).and_yield(redirect)
 
-    expect { run_download }.to raise_error(RuntimeError, /redirection forbidden/)
+    expect do
+      expect { run_download }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+    end.to output(/Invalid HTTPS redirect for HTML page/).to_stderr
   end
 
   context 'with an image URL containing terminal control characters' do

@@ -218,11 +218,12 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
         illustration = Irasutoya::Cli::Illustration
         allow(illustration).to receive(:random).and_call_original
         allow(illustration).to receive(:random_url).and_return('http://www.irasutoya.com/cat.html')
-        uri = URI.parse('https://www.irasutoya.com/cat.html')
-        expect(OpenURI).to receive(:open_http).with(anything, uri, anything, anything) do |buffer|
-          buffer << '<div class="entry"><img src="http://example.com/cat.png"></div>'
-          buffer.io.rewind
-        end
+        http = instance_double(Net::HTTP)
+        expect(Net::HTTP).to receive(:start).with('www.irasutoya.com', 443, use_ssl: true, max_retries: 0,
+                                                  ignore_eof: false).and_yield(http)
+        response = Net::HTTPOK.new('1.1', '200', 'OK')
+        allow(http).to receive(:request_get).with('/cat.html', 'Accept-Encoding' => 'identity').and_yield(response)
+        allow(response).to receive(:read_body).and_yield('<div class="entry"><img src="http://example.com/cat.png"></div>')
 
         allow($stdout).to receive(:tty?).and_return(false)
         expect { subject }.to output(/Image URL:   http:\/\/example.com\/cat.png/).to_stdout
@@ -237,7 +238,7 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
       end
 
       before do
-        allow(Irasutoya::Irasuto).to receive(:search) { [irasuto_link] }
+        allow(Irasutoya::Cli::Illustration).to receive(:search) { [irasuto_link] }
         allow(irasuto_link).to receive(:fetch_irasuto) { irasuto }
       end
 
@@ -245,7 +246,7 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
 
       it 'upgrades a result page URL before fetching it' do
         legacy_link = Irasutoya::IrasutoLink.new(title: 'title', show_url: 'http://example.com')
-        allow(Irasutoya::Irasuto).to receive(:search).and_return([legacy_link])
+        allow(Irasutoya::Cli::Illustration).to receive(:search).and_return([legacy_link])
         expect(legacy_link).not_to receive(:fetch_irasuto)
         expect(Irasutoya::IrasutoLink).to receive(:new)
           .with(title: 'title', show_url: 'https://example.com').and_return(irasuto_link)
@@ -255,7 +256,7 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
 
       it 'displays each of the first three results before fetching the next page' do
         links = Array.new(4) { instance_double(Irasutoya::IrasutoLink, show_url: 'https://example.com') }
-        allow(Irasutoya::Irasuto).to receive(:search).with(query: 'query').and_return(links)
+        allow(Irasutoya::Cli::Illustration).to receive(:search).with(query: 'query').and_return(links)
 
         links.take(3).each do |link|
           result = instance_double(Irasutoya::Irasuto)
@@ -269,7 +270,7 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
 
       it 'skips a missing detail result and continues to the next link' do
         missing_link = instance_double(Irasutoya::IrasutoLink, show_url: 'https://example.com', fetch_irasuto: nil)
-        allow(Irasutoya::Irasuto).to receive(:search).and_return([missing_link, irasuto_link])
+        allow(Irasutoya::Cli::Illustration).to receive(:search).and_return([missing_link, irasuto_link])
 
         expect { subject }.to output(expected).to_stdout
       end
@@ -286,7 +287,7 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
 
         before do
           next_link = instance_double(Irasutoya::IrasutoLink, show_url: 'https://example.com/next', fetch_irasuto: next_result)
-          allow(Irasutoya::Irasuto).to receive(:search).and_return([irasuto_link, next_link])
+          allow(Irasutoya::Cli::Illustration).to receive(:search).and_return([irasuto_link, next_link])
           next_response = Net::HTTPOK.new('1.1', '200', 'OK')
           allow(next_response).to receive(:read_body).and_yield('next')
           allow(http).to receive(:request_get).with('/next.png', headers).and_yield(next_response)
@@ -373,7 +374,7 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
           last_result = Irasutoya::Irasuto.new(
             url: last_url, title: 'last', description: 'description', image_urls: irasuto.image_urls
           )
-          allow(Irasutoya::Irasuto).to receive(:search).and_return([irasuto_link, missing_link, last_link])
+          allow(Irasutoya::Cli::Illustration).to receive(:search).and_return([irasuto_link, missing_link, last_link])
           allow(missing_link).to receive(:fetch_irasuto).and_raise(detail_error)
           allow(last_link).to receive(:fetch_irasuto).and_return(last_result)
         end
