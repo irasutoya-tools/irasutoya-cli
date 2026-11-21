@@ -32,6 +32,8 @@ RSpec.describe 'irasutoya download' do
     allow(Net::HTTP).to receive(:start).with('example.com', 443, use_ssl: true, max_retries: 0,
                                            ignore_eof: false).and_return(http)
     image_urls.zip(image_data).each do |url, data|
+      next unless data
+
       response = stub_image(url, data)
       response['content-length'] = data.bytesize.to_s if url == image_urls.first
     end
@@ -45,6 +47,58 @@ RSpec.describe 'irasutoya download' do
     expect { run_download }.to output(paths.map { |path| "Saved: #{path}\n" }.join).to_stdout
     expect(paths.map { |path| File.binread(path) }).to eq(image_data)
     expect(Dir.children(directory)).to match_array(%w[cat.png cat-1.png])
+  end
+
+  it 'upgrades an HTTP page URL before passing it to the scraper' do
+    expect { run_download(page_url.sub('https:', 'http:')) }.to output(/Saved: .*cat\.png/).to_stdout
+  end
+
+  context 'with a legacy HTTP image URL' do
+    let(:image_urls) { ['http://example.com/cat.png'] }
+
+    it 'opens the HTTPS image URL and saves its contents' do
+      expect(http).to receive(:request_get).with('/cat.png', request_headers)
+
+      expect { run_download }.to output(/Saved: .*cat\.png/).to_stdout
+      expect(File.binread(File.join(directory, 'cat.png'))).to eq(image_data.first)
+    end
+  end
+
+  context 'with a non-HTTPS image URL that cannot be upgraded' do
+    let(:image_urls) { ['ftp://example.com/cat.png'] }
+    let(:image_data) { [] }
+
+    it 'rejects the image before opening its URL' do
+      expect(Net::HTTP).not_to receive(:start)
+
+      expect do
+        expect { run_download }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      end.to output("Could not download #{image_urls.first}: URL must use HTTPS\n").to_stderr
+      expect(Dir.children(directory)).to be_empty
+    end
+  end
+
+  it 'rejects an HTTP redirect from the page before contacting the destination' do
+    allow(link).to receive(:fetch_page_and_parse).and_call_original
+    destination = URI.parse('http://other.example.com/resource')
+    expect(OpenURI).to receive(:open_http).with(anything, URI.parse(page_url), anything, anything).once do
+      throw :open_uri_redirect, destination
+    end
+
+    expect { run_download }.to raise_error(RuntimeError, /redirection forbidden/)
+  end
+
+  context 'with an image URL containing terminal control characters' do
+    let(:image_urls) { ["https://example.com/cat\e[0m\n.png"] }
+    let(:image_data) { [] }
+
+    it 'escapes control characters in the download error sent to stderr' do
+      expect(Net::HTTP).not_to receive(:start)
+
+      expect do
+        expect { run_download }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      end.to output(/\ACould not download https:\/\/example\.com\/cat\\x1B\[0m\\x0A\.png: [^\p{Cc}]+\n\z/).to_stderr
+    end
   end
 
   context 'with 100 images sharing a basename' do
@@ -144,6 +198,7 @@ RSpec.describe 'irasutoya download' do
   it 'rejects an HTTPS redirect to HTTP and removes the temporary file' do
     redirect = Net::HTTPFound.new('1.1', '302', 'Found')
     redirect['location'] = 'http://example.com/redirected.png'
+    expect(Net::HTTP).not_to receive(:start).with('example.com', 80, any_args)
     allow(http).to receive(:request_get).with('/cat.png', request_headers).and_yield(redirect)
 
     expect do
@@ -155,14 +210,13 @@ RSpec.describe 'irasutoya download' do
   it 'rejects a redirect to a non-HTTP destination before starting another request' do
     allow(http).to receive(:request_get).with('/cat.png', request_headers)
                                        .and_yield(redirect_to('file:///cat.png'))
-    allow(Net::HTTP).to receive(:start).with('example.com', 80, use_ssl: false, max_retries: 0,
-                                           ignore_eof: false).and_return(http)
+    expect(Net::HTTP).to receive(:start).once.and_return(http)
     images = Nokogiri::HTML('<div class="entry"><img src="http://example.com/cat.png"></div>')
     allow(link).to receive(:fetch_page_and_parse).with(page_url).and_return(images)
 
     expect do
       expect { run_download }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
-    end.to output("Image download URL must use HTTP or HTTPS\n").to_stderr
+    end.to output("Image download redirect must use HTTPS\n").to_stderr
     expect(Dir.children(directory)).to be_empty
   end
 

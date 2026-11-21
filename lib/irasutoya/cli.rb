@@ -3,7 +3,9 @@
 require 'open-uri'
 require 'tempfile'
 require 'timeout'
+require 'irasutoya/cli/https_url'
 require 'irasutoya/cli/image_transfer'
+require 'irasutoya/cli/terminal_output'
 require 'irasutoya/cli/version'
 require 'thor'
 
@@ -21,8 +23,8 @@ module Irasutoya
       desc 'random', 'Gives you random irasutoya image'
       method_option :jsonl, **JSONL_OPTION
       def random
-        require 'irasutoya'
-        with_preview_sessions { display(Irasutoya::Irasuto.random) }
+        require 'irasutoya/cli/illustration'
+        with_preview_sessions { display(Illustration.random) }
       end
 
       desc 'search {query}', 'Shows images from up to three result pages. Each page can contain multiple images.'
@@ -52,8 +54,10 @@ module Irasutoya
       private
 
       def fetch_result(link)
+        url = HttpsUrl.parse(link.show_url).to_s
+        link = Irasutoya::IrasutoLink.new(title: link.title, show_url: url) if url != link.show_url
         link.fetch_irasuto
-      rescue OpenURI::HTTPError, Timeout::Error => e
+      rescue OpenURI::HTTPError, Timeout::Error, URI::InvalidURIError => e
         warn "warn: Could not fetch result page #{escape_controls(link.show_url)}: #{escape_controls(e.message)}"
         nil
       end
@@ -86,12 +90,12 @@ module Irasutoya
       end
 
       def escape_controls(value)
-        value.to_s.gsub(/\p{Cc}/) { |character| format('\\x%02X', character.ord) }
+        TerminalOutput.escape_controls(value)
       end
 
       def show_preview(image_url)
         Tempfile.create(binmode: true) do |file|
-          download_preview(URI.parse(image_url), file)
+          download_preview(HttpsUrl.parse(image_url), file)
           Preview.show(file.tap(&:rewind))
         end
       rescue PreviewTooLarge

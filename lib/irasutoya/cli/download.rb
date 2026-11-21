@@ -2,6 +2,8 @@
 
 require 'fileutils'
 require 'irasutoya'
+require 'irasutoya/cli/https_url'
+require 'irasutoya/cli/terminal_output'
 require 'irasutoya/cli/image_transfer'
 require 'tempfile'
 require 'thor'
@@ -28,13 +30,12 @@ module Irasutoya
       private
 
       def page_images
-        uri = URI.parse(@page_url)
-        unless uri.is_a?(URI::HTTP) && %w[irasutoya.com www.irasutoya.com].include?(uri.host&.downcase) &&
-               uri.path.end_with?('.html')
+        uri = HttpsUrl.parse(@page_url)
+        unless %w[irasutoya.com www.irasutoya.com].include?(uri.host.downcase) && uri.path.end_with?('.html')
           raise Thor::Error, 'Provide an Irasutoya illustration page URL printed by search or random.'
         end
 
-        Irasutoya::IrasutoLink.new(title: nil, show_url: @page_url).fetch_irasuto.image_urls
+        Irasutoya::IrasutoLink.new(title: nil, show_url: uri.to_s).fetch_irasuto.image_urls
       rescue URI::InvalidURIError
         raise Thor::Error, 'Provide an Irasutoya illustration page URL printed by search or random.'
       rescue OpenURI::HTTPError => e
@@ -42,14 +43,14 @@ module Irasutoya
       end
 
       def save_image(url, next_suffixes)
-        uri = URI.parse(url)
-        filename = File.basename(uri.path)
-        filename = 'image' if ['', '.', '..', '/'].include?(filename)
+        uri = HttpsUrl.parse(url)
         Tempfile.create('.irasutoya-', @directory, binmode: true) do |file|
           copy_image(uri, file)
           file.flush
-          link_image(file.path, filename, next_suffixes)
+          link_image(file.path, image_filename(uri), next_suffixes)
         end
+      rescue URI::InvalidURIError => e
+        raise Thor::Error, TerminalOutput.escape_controls("Could not download #{url}: #{e.message}")
       rescue ImageTransfer::ResponseError => e
         raise Thor::Error, "Could not fetch image #{url}: #{e.message}"
       end
@@ -58,12 +59,15 @@ module Irasutoya
         ImageTransfer.fetch(uri) { |chunk| write_chunk(destination, chunk) }
       rescue ImageTransfer::IncompleteBodyError => e
         raise Thor::Error, "Incomplete image download from #{uri}: #{e.message}"
-      rescue ImageTransfer::InvalidSchemeError
-        raise Thor::Error, 'Image download URL must use HTTP or HTTPS'
       rescue ImageTransfer::TooManyRedirectsError
         raise Thor::Error, 'Too many image download redirects'
       rescue ImageTransfer::InsecureRedirectError
         raise Thor::Error, 'Image download redirect must use HTTPS'
+      end
+
+      def image_filename(uri)
+        filename = File.basename(uri.path)
+        ['', '.', '..', '/'].include?(filename) ? 'image' : filename
       end
 
       def write_chunk(destination, chunk)

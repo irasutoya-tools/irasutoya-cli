@@ -32,7 +32,7 @@ module Irasutoya
       end
 
       def fetch(uri, &on_chunk)
-        raise InvalidSchemeError, 'Image URL must use HTTP or HTTPS' unless uri.is_a?(URI::HTTP)
+        raise InvalidSchemeError, 'Image URL must use HTTPS' unless uri.is_a?(URI::HTTPS) && !uri.host.to_s.empty?
 
         MAX_REDIRECTS.downto(0) do |redirects_left|
           redirect = request(uri, &on_chunk)
@@ -81,7 +81,7 @@ module Irasutoya
       end
 
       def session(uri, origin)
-        options = { use_ssl: uri.scheme == 'https', max_retries: 0, ignore_eof: false }
+        options = { use_ssl: true, max_retries: 0, ignore_eof: false }
         @sessions[origin] ||= Net::HTTP.start(uri.hostname, uri.port, **options)
       end
 
@@ -105,11 +105,8 @@ module Irasutoya
 
       def redirect_uri(uri, response)
         target = resolve_location(uri, response)
-        if uri.scheme == 'https' && target.scheme != 'https'
-          raise InsecureRedirectError, 'Image redirect must use HTTPS'
-        end
+        raise InsecureRedirectError, 'Image redirect must use HTTPS' unless target.is_a?(URI::HTTPS)
 
-        raise InvalidSchemeError, 'Image URL must use HTTP or HTTPS' unless target.is_a?(URI::HTTP)
         if target.host.to_s.empty? || !(1..65_535).cover?(target.port)
           raise ResponseError, 'Image redirect has an invalid Location header'
         end

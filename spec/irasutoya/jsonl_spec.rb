@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'irasutoya'
+require 'irasutoya/cli/illustration'
 require 'json'
 require 'irasutoya/cli/preview'
 
@@ -20,10 +21,10 @@ RSpec.describe 'JSON Lines output' do
       description: result.fetch('description'), image_urls: result.fetch('image_urls')
     )
   end
-  let(:link) { instance_double(Irasutoya::IrasutoLink, fetch_irasuto: illustration) }
+  let(:link) { instance_double(Irasutoya::IrasutoLink, show_url: result.fetch('page_url'), fetch_irasuto: illustration) }
 
   it 'prints one line with Japanese metadata and all image URLs for random, even in a terminal' do
-    allow(Irasutoya::Irasuto).to receive(:random).and_return(illustration)
+    allow(Irasutoya::Cli::Illustration).to receive(:random).and_return(illustration)
     expect(Irasutoya::Cli::Preview).not_to receive(:show)
 
     expect do
@@ -42,9 +43,9 @@ RSpec.describe 'JSON Lines output' do
   it 'warns on stderr and emits each successful result on its own line as search pages are fetched' do
     missing_url = 'https://www.irasutoya.com/2026/01/missing.html'
     missing = instance_double(Irasutoya::IrasutoLink, show_url: missing_url)
-    last = instance_double(Irasutoya::IrasutoLink)
     last_illustration = illustration.dup
     last_url = 'https://www.irasutoya.com/2026/01/another-cat.html'
+    last = instance_double(Irasutoya::IrasutoLink, show_url: last_url)
     allow(last_illustration).to receive(:url).and_return(last_url)
     allow(Irasutoya::Irasuto).to receive(:search).with(query: '猫').and_return([link, missing, last])
     allow(missing).to receive(:fetch_irasuto) { raise Timeout::Error, 'timed out' }
