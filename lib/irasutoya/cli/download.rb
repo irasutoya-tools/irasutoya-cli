@@ -11,6 +11,52 @@ require 'thor'
 module Irasutoya
   module Cli
     class Download
+      class SaveError < Error; end
+
+      class TemporaryImage
+        def initialize(directory)
+          @file = Tempfile.create('.irasutoya-', directory, binmode: true)
+        rescue SystemCallError => e
+          message = "Could not create temporary image in #{directory}: #{e.message}"
+          raise SaveError, TerminalOutput.escape_controls(message)
+        end
+
+        def path
+          @file.path
+        end
+
+        def write(chunk)
+          with_io { @file.write(chunk) }
+        end
+
+        def flush
+          with_io { @file.flush }
+        end
+
+        def remove
+          with_io { @file.close }
+        ensure
+          unlink
+        end
+
+        private
+
+        def unlink
+          with_io do
+            File.unlink(path)
+          rescue Errno::ENOENT
+            nil
+          end
+        end
+
+        def with_io
+          yield
+        rescue SystemCallError, IOError => e
+          raise SaveError, TerminalOutput.escape_controls("Could not save image at #{path}: #{e.message}")
+        end
+      end
+      private_constant :TemporaryImage
+
       def initialize(page_url, directory)
         @page_url = page_url
         @directory = directory
@@ -20,7 +66,7 @@ module Irasutoya
         images = page_images
         raise Thor::Error, "No images found on #{@page_url}" if images.empty?
 
-        FileUtils.mkdir_p(@directory)
+        prepare_directory
         next_suffixes = Hash.new(0)
         ImageTransfer.with_sessions do |transfer|
           images.each { |url| yield save_image(url, next_suffixes, transfer) }
@@ -28,6 +74,12 @@ module Irasutoya
       end
 
       private
+
+      def prepare_directory
+        FileUtils.mkdir_p(@directory)
+      rescue SystemCallError => e
+        raise SaveError, TerminalOutput.escape_controls("Could not create output directory #{@directory}: #{e.message}")
+      end
 
       def page_images
         uri = HttpsUrl.parse(@page_url)
@@ -45,15 +97,15 @@ module Irasutoya
 
       def save_image(url, next_suffixes, transfer)
         uri = HttpsUrl.parse(url)
-        Tempfile.create('.irasutoya-', @directory, binmode: true) do |file|
-          copy_image(uri, file, transfer)
-          file.flush
-          link_image(file.path, image_filename(uri), next_suffixes)
-        end
+        file = TemporaryImage.new(@directory)
+        copy_image(uri, file, transfer)
+        link_image(file.tap(&:flush).path, image_filename(uri), next_suffixes)
       rescue URI::InvalidURIError => e
         raise Thor::Error, TerminalOutput.escape_controls("Could not download #{url}: #{e.message}")
       rescue ImageTransfer::ResponseError => e
         raise Thor::Error, "Could not fetch image #{url}: #{e.message}"
+      ensure
+        file&.remove
       end
 
       def copy_image(uri, destination, transfer)
@@ -87,18 +139,21 @@ module Irasutoya
       end
 
       def link_with_stem(source, stem, ending)
-        link_path(source, "#{stem}#{ending}")
-      rescue Errno::ENAMETOOLONG
-        raise if stem.empty?
+        path = File.join(@directory, "#{stem}#{ending}")
+        path.tap { File.link(source, path) }
+      rescue Errno::EEXIST
+        raise
+      rescue Errno::ENAMETOOLONG => e
+        raise_save_error(path, e) if stem.empty?
 
         stem = stem[0...-1]
         retry
+      rescue SystemCallError => e
+        raise_save_error(path, e)
       end
 
-      def link_path(source, filename)
-        path = File.join(@directory, filename)
-        File.link(source, path)
-        path
+      def raise_save_error(path, error)
+        raise SaveError, TerminalOutput.escape_controls("Could not save image at #{path}: #{error.message}")
       end
     end
   end
