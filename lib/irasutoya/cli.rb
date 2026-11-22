@@ -12,7 +12,6 @@ require 'thor'
 module Irasutoya
   module Cli
     class Runner < Thor
-      MAX_PREVIEW_BYTES = 10 * 1024 * 1024
       JSONL_OPTION = { type: :boolean, desc: 'Print one JSON object per result' }.freeze
 
       def self.exit_on_failure?
@@ -24,20 +23,23 @@ module Irasutoya
       def random
         require 'irasutoya/cli/illustration'
         with_preview_sessions { display(Illustration.random) }
+      rescue HtmlPage::Error => e
+        raise Thor::Error, e.message
       end
 
       desc 'search {query}', 'Shows images from up to three result pages. Each page can contain multiple images.'
       method_option :jsonl, **JSONL_OPTION
       def search(query)
-        require 'irasutoya'
+        require 'irasutoya/cli/illustration'
         with_preview_sessions do
-          Irasutoya::Irasuto
-            .search(query:)
-            .take(3)
-            .lazy
-            .filter_map(&method(:fetch_result))
-            .each(&method(:display))
+          Illustration.search(query:)
+                      .take(3)
+                      .lazy
+                      .filter_map(&method(:fetch_result))
+                      .each(&method(:display))
         end
+      rescue HtmlPage::Error => e
+        raise Thor::Error, e.message
       end
 
       desc 'download PAGE_URL', 'Saves all images from an illustration page'
@@ -55,8 +57,8 @@ module Irasutoya
       def fetch_result(link)
         url = HttpsUrl.parse(link.show_url).to_s
         link = Irasutoya::IrasutoLink.new(title: link.title, show_url: url) if url != link.show_url
-        link.fetch_irasuto
-      rescue OpenURI::HTTPError, Timeout::Error, URI::InvalidURIError => e
+        link.extend(HtmlPage).fetch_irasuto
+      rescue HtmlPage::Error, OpenURI::HTTPError, Timeout::Error, URI::InvalidURIError => e
         warn "warn: Could not fetch result page #{escape_controls(link.show_url)}: #{escape_controls(e.message)}"
         nil
       end
@@ -94,14 +96,14 @@ module Irasutoya
 
       def show_preview(image_url)
         Tempfile.create(binmode: true) do |file|
-          download_preview(HttpsUrl.parse(image_url), file)
+          @preview_transfer.copy(HttpsUrl.parse(image_url), file, max_bytes: ImageTransfer::MAX_IMAGE_BYTES)
           Preview.show(file.tap(&:rewind))
         end
-      rescue ImageTransfer::BodyTooLargeError
-        say "warn: Image preview exceeds the #{MAX_PREVIEW_BYTES}-byte limit", :yellow
+      rescue ImageTransfer::SizeLimitExceededError
+        say "warn: Image preview exceeds the #{ImageTransfer::MAX_IMAGE_BYTES}-byte limit", :yellow
       rescue ImageTransfer::ResponseError, Net::OpenTimeout, Net::ReadTimeout, Net::WriteTimeout,
-             TerminalImage::UnsupportedFormat, TerminalImage::UnsupportedTerminal => e
-        say "warn: Could not preview #{image_url}: #{e.message}", :yellow
+             TerminalImage::UnsupportedFormat, TerminalImage::UnsupportedTerminal, URI::InvalidURIError => e
+        say "warn: Could not preview #{escape_controls(image_url)}: #{escape_controls(e.message)}", :yellow
       end
 
       def with_preview_sessions
@@ -109,12 +111,6 @@ module Irasutoya
           @preview_transfer = transfer
           yield
         end
-      end
-
-      def download_preview(uri, file)
-        @preview_transfer.fetch(uri, max_bytes: MAX_PREVIEW_BYTES) { |chunk| file.write(chunk) }
-      rescue EOFError => e
-        raise ImageTransfer::ResponseError, e.message
       end
     end
   end

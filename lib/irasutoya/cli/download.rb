@@ -2,7 +2,7 @@
 
 require 'fileutils'
 require 'irasutoya'
-require 'irasutoya/cli/https_url'
+require 'irasutoya/cli/html_page'
 require 'irasutoya/cli/terminal_output'
 require 'irasutoya/cli/image_transfer'
 require 'tempfile'
@@ -11,8 +11,6 @@ require 'thor'
 module Irasutoya
   module Cli
     class Download
-      MAX_IMAGE_BYTES = 10 * 1024 * 1024
-
       def initialize(page_url, directory)
         @page_url = page_url
         @directory = directory
@@ -37,10 +35,11 @@ module Irasutoya
           raise Thor::Error, 'Provide an Irasutoya illustration page URL printed by search or random.'
         end
 
-        Irasutoya::IrasutoLink.new(title: nil, show_url: uri.to_s).fetch_irasuto.image_urls
+        link = Irasutoya::IrasutoLink.new(title: nil, show_url: uri.to_s)
+        link.extend(HtmlPage).fetch_irasuto.image_urls
       rescue URI::InvalidURIError
         raise Thor::Error, 'Provide an Irasutoya illustration page URL printed by search or random.'
-      rescue OpenURI::HTTPError => e
+      rescue HtmlPage::Error, OpenURI::HTTPError => e
         raise Thor::Error, "Could not fetch illustration page #{@page_url}: #{e.message}"
       end
 
@@ -58,9 +57,9 @@ module Irasutoya
       end
 
       def copy_image(uri, destination, transfer)
-        transfer.fetch(uri, max_bytes: MAX_IMAGE_BYTES) { |chunk| destination.write(chunk) }
-      rescue ImageTransfer::BodyTooLargeError
-        raise Thor::Error, "Image download exceeds the #{MAX_IMAGE_BYTES}-byte limit"
+        transfer.copy(uri, destination, max_bytes: ImageTransfer::MAX_IMAGE_BYTES)
+      rescue ImageTransfer::SizeLimitExceededError
+        raise Thor::Error, "Image download exceeds the #{ImageTransfer::MAX_IMAGE_BYTES}-byte limit"
       rescue ImageTransfer::IncompleteBodyError => e
         raise Thor::Error, "Incomplete image download from #{uri}: #{e.message}"
       rescue ImageTransfer::TooManyRedirectsError

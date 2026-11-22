@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require 'stringio'
+
 RSpec.describe Irasutoya::Cli::ImageTransfer do
   let(:headers) { { 'Accept-Encoding' => 'identity' } }
   let(:http) { instance_double(Net::HTTP, finish: nil) }
@@ -7,6 +9,37 @@ RSpec.describe Irasutoya::Cli::ImageTransfer do
 
   before do
     allow(Net::HTTP).to receive(:start).with('example.com', 443, use_ssl: true, max_retries: 0, ignore_eof: false).and_return(http)
+  end
+
+  describe '.copy' do
+    let(:image) { Net::HTTPOK.new('1.1', '200', 'OK') }
+    let(:destination) { StringIO.new('prefix'.dup, 'ab') }
+
+    before do
+      allow(http).to receive(:request_get).with('/images/start.png', headers).and_yield(image)
+    end
+
+    it 'copies exactly the supplied number of bytes regardless of destination position' do
+      image['Content-Length'] = '4'
+      allow(image).to receive(:read_body).and_yield('é').and_yield('ab')
+
+      described_class.copy(url, destination, max_bytes: 4)
+
+      expect(destination.string).to eq('prefixéab'.b)
+    end
+
+    it 'stops before writing an overflowing chunk without Content-Length' do
+      allow(image).to receive(:read_body) do |&receive_chunk|
+        receive_chunk.call('é')
+        receive_chunk.call('abc')
+        raise 'Read past the byte limit'
+      end
+
+      expect do
+        described_class.copy(url, destination, max_bytes: 4)
+      end.to raise_error(described_class::SizeLimitExceededError)
+      expect(destination.string).to eq('prefixé'.b)
+    end
   end
 
   it 'resolves a relative redirect and yields only the successful response body' do

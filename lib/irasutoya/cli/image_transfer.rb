@@ -8,59 +8,88 @@ module Irasutoya
     class Error < StandardError; end
 
     class ImageTransfer
+      MAX_IMAGE_BYTES = 10 * 1024 * 1024
       MAX_REDIRECTS = 5
       TRANSFER_TIMEOUT = 60
       REDIRECT_CODES = %w[301 302 303 307 308].freeze
 
       class ResponseError < Error; end
       class IncompleteBodyError < ResponseError; end
-      class BodyTooLargeError < ResponseError; end
+      class SizeLimitExceededError < ResponseError; end
       class InvalidSchemeError < ResponseError; end
       class TooManyRedirectsError < Error; end
       class InsecureRedirectError < ResponseError; end
 
       class ResponseBody
-        def initialize(response, max_bytes)
-          @response = response
-          @max_bytes = max_bytes
-          @length = response.content_length unless response.key?('transfer-encoding')
-          @bytes = 0
-        end
+        def self.read(response, max_bytes)
+          bytes = 0
+          length = checked_length(response, max_bytes)
+          response.read_body do |chunk|
+            bytes += chunk.bytesize
+            enforce_limit(bytes, max_bytes)
 
-        def read
-          enforce_limit(@length) if @length
-          @response.read_body do |chunk|
-            @bytes += chunk.bytesize
-            enforce_limit(@bytes)
             yield chunk
           end
-          validate
+          validate(length, bytes)
         rescue EOFError => e
-          raise IncompleteBodyError, incomplete_message || e.message
+          validate(length, bytes, eof: e)
         end
 
-        private
+        def self.checked_length(response, max_bytes)
+          return if response.key?('transfer-encoding')
 
-        def enforce_limit(bytes)
-          return unless @max_bytes && bytes > @max_bytes
-
-          raise BodyTooLargeError, "Image response exceeds the #{@max_bytes}-byte limit"
+          response.content_length.tap { |length| enforce_limit(length, max_bytes) if length }
         end
 
-        def validate
-          message = incomplete_message
-          raise IncompleteBodyError, message if message
-          raise ResponseError, 'Empty image response' if @bytes.zero?
+        def self.enforce_limit(bytes, max_bytes)
+          return unless max_bytes && bytes > max_bytes
+
+          raise SizeLimitExceededError, "Image exceeds the #{max_bytes}-byte limit"
         end
 
-        def incomplete_message
-          "expected #{@length} bytes, received #{@bytes}" if @length && @bytes < @length
+        def self.validate(length, bytes, eof: nil)
+          raise IncompleteBodyError, "expected #{length} bytes, received #{bytes}" if length && bytes < length
+          raise IncompleteBodyError, eof.message if eof
+          raise ResponseError, 'Empty image response' if bytes.zero?
         end
+
+        private_class_method :checked_length, :enforce_limit, :validate
       end
       private_constant :ResponseBody
 
+      class SessionCache
+        MAX_SESSIONS = 4
+
+        def initialize
+          @sessions = {}
+        end
+
+        def fetch(origin)
+          # Keep the hash ordered from least to most recently used.
+          http = @sessions.delete(origin)
+          return @sessions[origin] = http if http
+
+          discard(@sessions.first.first) if @sessions.size >= MAX_SESSIONS
+          @sessions[origin] = yield
+        end
+
+        def discard(origin)
+          @sessions.delete(origin)&.finish
+        end
+
+        def close
+          @sessions.each_value(&:finish)
+          @sessions.clear
+        end
+      end
+      private_constant :SessionCache
+
       def self.fetch(uri, max_bytes: nil, &on_chunk)
         with_sessions { |transfer| transfer.fetch(uri, max_bytes:, &on_chunk) }
+      end
+
+      def self.copy(uri, destination, max_bytes:)
+        with_sessions { |transfer| transfer.copy(uri, destination, max_bytes:) }
       end
 
       def self.with_sessions
@@ -71,7 +100,11 @@ module Irasutoya
       end
 
       def initialize
-        @sessions = {}
+        @sessions = SessionCache.new
+      end
+
+      def copy(uri, destination, max_bytes:)
+        fetch(uri, max_bytes:) { |chunk| destination.write(chunk) }
       end
 
       def fetch(uri, max_bytes: nil, &)
@@ -83,8 +116,7 @@ module Irasutoya
       end
 
       def close
-        @sessions.each_value(&:finish)
-        @sessions.clear
+        @sessions.close
       end
 
       private
@@ -116,22 +148,22 @@ module Irasutoya
         origin = [uri.scheme, uri.hostname&.downcase, uri.port]
         yield session(uri, origin)
         completed = true
-      rescue Net::HTTPExceptions => e
+      rescue Net::HTTPExceptions, EOFError => e
         raise ResponseError, e.message
       ensure
-        @sessions.delete(origin)&.finish unless completed
+        @sessions.discard(origin) unless completed
       end
 
       def stream_image(response, max_bytes, &)
         raise IncompleteBodyError, 'HTTP 206 Partial Content' if response.code == '206'
 
         response.value
-        ResponseBody.new(response, max_bytes).read(&)
+        ResponseBody.read(response, max_bytes, &)
       end
 
       def session(uri, origin)
         options = { use_ssl: true, max_retries: 0, ignore_eof: false }
-        @sessions[origin] ||= Net::HTTP.start(uri.hostname, uri.port, **options)
+        @sessions.fetch(origin) { Net::HTTP.start(uri.hostname, uri.port, **options) }
       end
 
       def empty_body?(response)

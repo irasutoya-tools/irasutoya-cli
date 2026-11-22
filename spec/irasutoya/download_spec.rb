@@ -13,7 +13,9 @@ RSpec.describe 'irasutoya download' do
   let(:image_urls) { %w[https://example.com/cat.png https://example.com/other/cat.png?size=large] }
   let(:image_data) { ["\x89PNG".b, "\xFF\xFE".b] }
   let(:directory) { File.join(@workspace, 'nested', 'images') }
-  let(:link) { Irasutoya::IrasutoLink.new(title: nil, show_url: page_url) }
+  let(:link) do
+    Irasutoya::IrasutoLink.new(title: nil, show_url: page_url).extend(Irasutoya::Cli::HtmlPage)
+  end
   let(:http) { instance_double(Net::HTTP, finish: nil) }
   let(:request_headers) { { 'Accept-Encoding' => 'identity' } }
 
@@ -85,12 +87,16 @@ RSpec.describe 'irasutoya download' do
 
   it 'rejects an HTTP redirect from the page before contacting the destination' do
     allow(link).to receive(:fetch_page_and_parse).and_call_original
-    destination = URI.parse('http://other.example.com/resource')
-    expect(OpenURI).to receive(:open_http).with(anything, URI.parse(page_url), anything, anything).once do
-      throw :open_uri_redirect, destination
-    end
+    page_http = instance_double(Net::HTTP)
+    expect(Net::HTTP).to receive(:start).with('www.irasutoya.com', 443, use_ssl: true, max_retries: 0,
+                                              ignore_eof: false).once.and_yield(page_http)
+    redirect = Net::HTTPFound.new('1.1', '302', 'Found')
+    redirect['location'] = 'http://other.example.com/resource'
+    expect(page_http).to receive(:request_get).with(URI(page_url).request_uri, request_headers).and_yield(redirect)
 
-    expect { run_download }.to raise_error(RuntimeError, /redirection forbidden/)
+    expect do
+      expect { run_download }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+    end.to output(/Invalid HTTPS redirect for HTML page/).to_stderr
   end
 
   context 'with an image URL containing terminal control characters' do
@@ -135,7 +141,7 @@ RSpec.describe 'irasutoya download' do
   end
 
   it 'preserves existing files and skips occupied suffixes' do
-    stub_const('Irasutoya::Cli::Download::MAX_IMAGE_BYTES', image_data.first.bytesize)
+    stub_const('Irasutoya::Cli::ImageTransfer::MAX_IMAGE_BYTES', image_data.first.bytesize)
     FileUtils.mkdir_p(directory)
     File.binwrite(File.join(directory, 'cat.png'), 'original')
     File.binwrite(File.join(directory, 'cat-1.png'), 'also original')
@@ -194,9 +200,25 @@ RSpec.describe 'irasutoya download' do
     expect(File.binread(path)).to eq(image_data.first)
   end
 
+  it 'reports a connection closed before headers and only announces and keeps the completed image' do
+    allow(http).to receive(:request_get).with(URI.parse(image_urls.last).request_uri, request_headers) do
+      Net::HTTPResponse.read_new(Net::BufferedIO.new(StringIO.new('')))
+    end
+    path = File.join(directory, 'cat.png')
+    stub_const('ARGV', ['download', page_url, '--output', directory])
+    executable = File.expand_path('../../exe/irasutoya', __dir__)
+
+    expect do
+      expect { load executable }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+    end.to output("Could not fetch image #{image_urls.last}: end of file reached\n").to_stderr
+      .and output("Saved: #{path}\n").to_stdout
+    expect(Dir.children(directory)).to eq(['cat.png'])
+    expect(File.binread(path)).to eq(image_data.first)
+  end
+
   it 'reports an oversized Content-Length before reading the body and removes its temporary file' do
     limit = image_data.first.bytesize
-    stub_const('Irasutoya::Cli::Download::MAX_IMAGE_BYTES', limit)
+    stub_const('Irasutoya::Cli::ImageTransfer::MAX_IMAGE_BYTES', limit)
     response = stub_image(image_urls.last, image_data.last)
     response['Content-Length'] = (limit + 1).to_s
     expect(response).not_to receive(:read_body)
@@ -208,8 +230,20 @@ RSpec.describe 'irasutoya download' do
     expect(File.binread(File.join(directory, 'cat.png'))).to eq(image_data.first)
   end
 
+  it 'ignores an oversized Content-Length when Transfer-Encoding is present' do
+    limit = image_data.map(&:bytesize).max
+    stub_const('Irasutoya::Cli::ImageTransfer::MAX_IMAGE_BYTES', limit)
+    response = stub_image(image_urls.last, image_data.last)
+    response['transfer-encoding'] = 'chunked'
+    response['content-length'] = (limit + 1).to_s
+
+    expect { run_download }.to output(/cat\.png\n.*cat-1\.png\n/m).to_stdout
+    expect(File.binread(File.join(directory, 'cat-1.png'))).to eq(image_data.last)
+  end
+
   it 'stops reading an oversized response without Content-Length and removes its temporary file' do
-    stub_const('Irasutoya::Cli::Download::MAX_IMAGE_BYTES', image_data.first.bytesize)
+    stub_const('Irasutoya::Cli::ImageTransfer::MAX_IMAGE_BYTES', image_data.first.bytesize)
+    expect(Net::HTTP).to receive(:start).once.and_return(http)
     response = stub_image(image_urls.last, image_data.last)
     allow(response).to receive(:read_body) do |&receive_chunk|
       receive_chunk.call(image_data.first)
@@ -220,6 +254,7 @@ RSpec.describe 'irasutoya download' do
     expect do
       expect { run_download }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
     end.to output("Image download exceeds the #{image_data.first.bytesize}-byte limit\n").to_stderr
+    expect(http).to have_received(:finish).once
     expect(Dir.children(directory)).to eq(['cat.png'])
     expect(File.binread(File.join(directory, 'cat.png'))).to eq(image_data.first)
   end
@@ -342,12 +377,10 @@ RSpec.describe 'irasutoya download' do
     expect(Dir.children(directory)).to be_empty
   end
 
-  it 'ignores an oversized Content-Length when Transfer-Encoding is present' do
-    limit = image_data.map(&:bytesize).max
-    stub_const('Irasutoya::Cli::Download::MAX_IMAGE_BYTES', limit)
+  it 'uses chunked framing when both Transfer-Encoding and Content-Length are present' do
     response = stub_image(image_urls.last, image_data.last)
     response['transfer-encoding'] = 'chunked'
-    response['content-length'] = (limit + 1).to_s
+    response['content-length'] = '12'
 
     expect { run_download }.to output(/cat\.png\n.*cat-1\.png\n/m).to_stdout
     expect(File.binread(File.join(directory, 'cat-1.png'))).to eq(image_data.last)
