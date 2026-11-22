@@ -41,17 +41,33 @@ RSpec.describe 'irasutoya download' do
     end
   end
 
-  it 'reuses one session, reports saved paths in order, and skips the preview renderer' do
+  it 'saves the images from the illustration HTML in order without rendering previews' do
+    allow(Irasutoya::IrasutoLink).to receive(:new).with(title: nil, show_url: page_url).and_call_original
+    page_http = instance_double(Net::HTTP)
+    expect(Net::HTTP).to receive(:start).with('www.irasutoya.com', 443, use_ssl: true, max_retries: 0,
+                                              ignore_eof: false).once.and_yield(page_http)
+    response = Net::HTTPOK.new('1.1', '200', 'OK')
+    response['content-type'] = 'text/html; charset=UTF-8'
+    allow(response).to receive(:read_body).and_yield(<<~HTML)
+      <img src="https://example.com/banner.png">
+      <div class="entry">
+        <img src="//example.com/cat.png">
+        <img src="https://example.com/other/cat.png?size=large">
+      </div>
+    HTML
+    expect(page_http).to receive(:request_get).with(URI(page_url).request_uri, request_headers).and_yield(response)
+
     allow($stdout).to receive(:tty?).and_return(true)
     expect(Irasutoya::Cli::Preview).not_to receive(:show)
-    expect(Net::HTTP).to receive(:start).once.and_return(http)
+    expect(Net::HTTP).to receive(:start).with('example.com', 443, use_ssl: true, max_retries: 0,
+                                              ignore_eof: false).once.and_return(http)
     image_urls.each do |url|
       expect(http).to receive(:request_get).with(URI.parse(url).request_uri, request_headers).ordered
     end
     expect(http).to receive(:finish).once.ordered
     paths = %w[cat.png cat-1.png].map { |name| File.join(directory, name) }
 
-    expect { run_download }.to output(paths.map { |path| "Saved: #{path}\n" }.join).to_stdout
+    expect { run_download }.to output(paths.map { |path| "Saved: #{path}\n" }.join).to_stdout.and output('').to_stderr
     expect(paths.map { |path| File.binread(path) }).to eq(image_data)
     expect(Dir.children(directory)).to match_array(%w[cat.png cat-1.png])
   end
