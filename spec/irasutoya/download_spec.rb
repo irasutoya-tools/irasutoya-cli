@@ -410,6 +410,19 @@ RSpec.describe 'irasutoya download' do
     expect(File.exist?(File.dirname(directory))).to be(false)
   end
 
+  it 'escapes terminal controls in the page error without starting image downloads' do
+    allow(link).to receive(:fetch_irasuto).and_raise(OpenURI::HTTPError.new("404 Not Found\e[0m\r\nTry again", nil))
+    expect(Net::HTTP).not_to receive(:start)
+    stub_const('ARGV', ['download', page_url, '--output', directory])
+    executable = File.expand_path('../../exe/irasutoya', __dir__)
+
+    expect do
+      expect { load executable }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+    end.to output("Could not fetch illustration page #{page_url}: 404 Not Found\\x1B[0m\\x0D\\x0ATry again\n").to_stderr
+      .and output('').to_stdout
+    expect(File.exist?(directory)).to be(false)
+  end
+
   it 'rejects a complete partial response without saving or announcing the image' do
     response = Net::HTTPPartialContent.new('1.1', '206', 'Partial Content')
     response['content-length'] = '5'
