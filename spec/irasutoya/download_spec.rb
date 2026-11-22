@@ -41,23 +41,51 @@ RSpec.describe 'irasutoya download' do
     end
   end
 
-  it 'reuses one session, reports saved paths in order, and skips the preview renderer' do
+  it 'saves the images from the illustration HTML in order without rendering previews' do
+    allow(Irasutoya::IrasutoLink).to receive(:new).with(title: nil, show_url: page_url).and_call_original
+    page_http = instance_double(Net::HTTP)
+    expect(Net::HTTP).to receive(:start).with('www.irasutoya.com', 443, use_ssl: true, max_retries: 0,
+                                              ignore_eof: false).once.and_yield(page_http)
+    response = Net::HTTPOK.new('1.1', '200', 'OK')
+    response['content-type'] = 'text/html; charset=UTF-8'
+    allow(response).to receive(:read_body).and_yield(<<~HTML)
+      <img src="https://example.com/banner.png">
+      <div class="entry">
+        <img src="//example.com/cat.png">
+        <img src="https://example.com/other/cat.png?size=large">
+      </div>
+    HTML
+    expect(page_http).to receive(:request_get).with(URI(page_url).request_uri, request_headers).and_yield(response)
+
     allow($stdout).to receive(:tty?).and_return(true)
     expect(Irasutoya::Cli::Preview).not_to receive(:show)
-    expect(Net::HTTP).to receive(:start).once.and_return(http)
+    expect(Net::HTTP).to receive(:start).with('example.com', 443, use_ssl: true, max_retries: 0,
+                                              ignore_eof: false).once.and_return(http)
     image_urls.each do |url|
       expect(http).to receive(:request_get).with(URI.parse(url).request_uri, request_headers).ordered
     end
     expect(http).to receive(:finish).once.ordered
     paths = %w[cat.png cat-1.png].map { |name| File.join(directory, name) }
 
-    expect { run_download }.to output(paths.map { |path| "Saved: #{path}\n" }.join).to_stdout
+    expect { run_download }.to output(paths.map { |path| "Saved: #{path}\n" }.join).to_stdout.and output('').to_stderr
     expect(paths.map { |path| File.binread(path) }).to eq(image_data)
     expect(Dir.children(directory)).to match_array(%w[cat.png cat-1.png])
   end
 
   it 'upgrades an HTTP page URL before passing it to the scraper' do
     expect { run_download(page_url.sub('https:', 'http:')) }.to output(/Saved: .*cat\.png/).to_stdout
+  end
+
+  it 'reports an existing output file once and exits before opening an image connection' do
+    FileUtils.mkdir_p(File.dirname(directory))
+    File.write(directory, 'original')
+    expect(Net::HTTP).not_to receive(:start)
+
+    expect do
+      expect { run_download }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+    end.to output(/\ACould not create output directory #{Regexp.escape(directory)}: File exists[^\n]*\n\z/).to_stderr
+      .and output('').to_stdout
+    expect(File.read(directory)).to eq('original')
   end
 
   context 'with a legacy HTTP image URL' do
@@ -307,14 +335,60 @@ RSpec.describe 'irasutoya download' do
     expect(Dir.children(directory)).to be_empty
   end
 
-  it 'cannot save an image when the destination filesystem rejects hard links' do
-    allow(File).to receive(:link).with(anything, File.join(directory, 'cat.png')) do |source, _destination|
-      expect(File.binread(source)).to eq(image_data.first)
+  it 'reports an unsupported hard link and keeps only the completed image' do
+    saved_path = File.join(directory, 'cat.png')
+    failed_path = File.join(directory, 'cat-1.png')
+    allow(File).to receive(:link).and_call_original
+    allow(File).to receive(:link).with(anything, failed_path) do |source, _destination|
+      expect(File.binread(source)).to eq(image_data.last)
       raise Errno::EOPNOTSUPP
     end
 
-    expect { run_download }.to raise_error(Errno::EOPNOTSUPP)
+    expect do
+      expect { run_download }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+    end.to output("Could not save image at #{failed_path}: #{Errno::EOPNOTSUPP.new.message}\n").to_stderr
+      .and output("Saved: #{saved_path}\n").to_stdout
     expect(http).to have_received(:finish).once
+    expect(Dir.children(directory)).to eq(['cat.png'])
+    expect(File.binread(saved_path)).to eq(image_data.first)
+  end
+
+  it 'reports a temporary file creation failure before starting an image transfer' do
+    allow(Tempfile).to receive(:create).with('.irasutoya-', directory, binmode: true).and_raise(Errno::EACCES)
+    expect(Net::HTTP).not_to receive(:start)
+
+    expect do
+      expect { run_download }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+    end.to output("Could not create temporary image in #{directory}: #{Errno::EACCES.new.message}\n").to_stderr
+      .and output('').to_stdout
+    expect(Dir.children(directory)).to be_empty
+  end
+
+  it 'reports a temporary write failure and removes the temporary file' do
+    FileUtils.mkdir_p(directory)
+    file = Tempfile.create('.irasutoya-', directory, binmode: true)
+    allow(Tempfile).to receive(:create).with('.irasutoya-', directory, binmode: true).and_return(file)
+    allow(file).to receive(:write).and_raise(Errno::ENOSPC)
+
+    expect do
+      expect { run_download }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+    end.to output("Could not save image at #{file.path}: #{Errno::ENOSPC.new.message}\n").to_stderr
+      .and output('').to_stdout
+    expect(Dir.children(directory)).to be_empty
+    expect(file).to be_closed
+  end
+
+  it 'reports a missing temporary source when it disappears before publication' do
+    path = File.join(directory, 'cat.png')
+    allow(File).to receive(:link).with(anything, path) do |source, _destination|
+      File.unlink(source)
+      raise Errno::ENOENT
+    end
+
+    expect do
+      expect { run_download }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+    end.to output("Could not save image at #{path}: #{Errno::ENOENT.new.message}\n").to_stderr
+      .and output('').to_stdout
     expect(Dir.children(directory)).to be_empty
   end
 
