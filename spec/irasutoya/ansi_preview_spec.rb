@@ -76,6 +76,62 @@ RSpec.describe 'ANSI image previews' do
         .to output(/\e\[49m \e\[38;2;12;34;56m/).to_stdout
     end
 
+    {
+      'a palette exceeding the indexed bit depth' => [1, 'PLTE', "\0" * 9],
+      'a palette with an incomplete entry' => [1, 'PLTE', "\0" * 4],
+      'an empty palette' => [1, 'PLTE', ''],
+      'transparency exceeding the palette size' => [2, 'tRNS', "\0" * 3]
+    }.each do |description, (depth, type, content)|
+      it "rejects #{description} before decoding and renders the next preview" do
+        indexed = ChunkyPNG::Image.new(2, 1, ChunkyPNG::Color::TRANSPARENT)
+        indexed[1, 0] = image[0, 0]
+        datastream = indexed.to_datastream(color_mode: ChunkyPNG::COLOR_INDEXED, bit_depth: depth)
+        if type == 'PLTE'
+          datastream.palette_chunk = ChunkyPNG::Chunk::Palette.new(type, content)
+        else
+          datastream.transparency_chunk = ChunkyPNG::Chunk::Transparency.new(type, content)
+        end
+
+        expect(ChunkyPNG::Canvas).to receive(:from_datastream).once.and_call_original
+        expect_preview_recovery(datastream.to_blob, 'Invalid PNG data')
+      end
+    end
+
+    it 'accepts a suggested palette and a transparent color in a truecolor PNG' do
+      datastream = image.to_datastream(:fast_rgb)
+      datastream.palette_chunk = ChunkyPNG::Chunk::Palette.new('PLTE', "\0" * 768)
+      datastream.transparency_chunk = ChunkyPNG::Chunk::Transparency.new('tRNS', [0, 0, 0].pack('n*'))
+
+      expect { Irasutoya::Cli::Preview.show(StringIO.new(datastream.to_blob)) }
+        .to output(/\e\[38;2;12;34;56m/).to_stdout
+    end
+
+    it 'accepts a two-byte transparent sample in a grayscale PNG' do
+      grayscale = ChunkyPNG::Image.new(1, 1, ChunkyPNG::Color.grayscale(12))
+      datastream = grayscale.to_datastream(color_mode: ChunkyPNG::COLOR_GRAYSCALE)
+      datastream.transparency_chunk = ChunkyPNG::Chunk::Transparency.new('tRNS', [12].pack('n'))
+
+      expect(Irasutoya::Cli::PreviewPNG.new.decode(StringIO.new(datastream.to_blob))[0, 0])
+        .to eq(ChunkyPNG::Color::TRANSPARENT)
+    end
+
+    it 'rejects a palette in a grayscale PNG' do
+      grayscale = ChunkyPNG::Image.new(1, 1, ChunkyPNG::Color.grayscale(12))
+      datastream = grayscale.to_datastream(color_mode: ChunkyPNG::COLOR_GRAYSCALE)
+      datastream.palette_chunk = ChunkyPNG::Chunk::Palette.new('PLTE', "\0" * 3)
+
+      expect { Irasutoya::Cli::Preview.show(StringIO.new(datastream.to_blob)) }
+        .to raise_error(TerminalImage::UnsupportedFormat, 'Invalid PNG data')
+    end
+
+    it 'rejects a transparency chunk in a PNG with an alpha channel' do
+      datastream = image.to_datastream(:fast_rgba)
+      datastream.transparency_chunk = ChunkyPNG::Chunk::Transparency.new('tRNS', "\0" * 6)
+
+      expect { Irasutoya::Cli::Preview.show(StringIO.new(datastream.to_blob)) }
+        .to raise_error(TerminalImage::UnsupportedFormat, 'Invalid PNG data')
+    end
+
     it 'delegates to the iTerm2 renderer when detected' do
       allow(ENV).to receive(:fetch).with('TERM_PROGRAM', nil).and_return('iTerm.app')
 
@@ -133,7 +189,7 @@ RSpec.describe 'ANSI image previews' do
       expect_preview_recovery(datastream.to_blob)
     end
 
-    def expect_preview_recovery(rejected_png)
+    def expect_preview_recovery(rejected_png, message = 'PNG decompression exceeds the preview limit')
       result = Irasutoya::Irasuto.new(url: 'http://example.com/', title: 'Preview', description: '', image_urls: urls)
       allow(Irasutoya::Cli::Illustration).to receive(:random).and_return(result)
       http = instance_double(Net::HTTP)
@@ -147,7 +203,7 @@ RSpec.describe 'ANSI image previews' do
                                             .and_yield(response)
       end
 
-      warning = "warn: Could not preview #{urls.first}: PNG decompression exceeds the preview limit"
+      warning = "warn: Could not preview #{urls.first}: #{message}"
       expect do
         allow($stdout).to receive(:tty?).and_return(true)
         Irasutoya::Cli::Runner.new([], {}, shell: Thor::Shell::Basic.new).random
