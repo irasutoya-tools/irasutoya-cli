@@ -23,10 +23,10 @@ module Irasutoya
       class ResponseBody
         def self.read(response, max_bytes)
           bytes = 0
-          length = response.content_length unless response.key?('transfer-encoding')
+          length = checked_length(response, max_bytes)
           response.read_body do |chunk|
             bytes += chunk.bytesize
-            raise SizeLimitExceededError, "Image exceeds the #{max_bytes}-byte limit" if max_bytes && bytes > max_bytes
+            enforce_limit(bytes, max_bytes)
 
             yield chunk
           end
@@ -35,13 +35,25 @@ module Irasutoya
           validate(length, bytes, eof: e)
         end
 
+        def self.checked_length(response, max_bytes)
+          return if response.key?('transfer-encoding')
+
+          response.content_length.tap { |length| enforce_limit(length, max_bytes) if length }
+        end
+
+        def self.enforce_limit(bytes, max_bytes)
+          return unless max_bytes && bytes > max_bytes
+
+          raise SizeLimitExceededError, "Image exceeds the #{max_bytes}-byte limit"
+        end
+
         def self.validate(length, bytes, eof: nil)
           raise IncompleteBodyError, "expected #{length} bytes, received #{bytes}" if length && bytes < length
           raise IncompleteBodyError, eof.message if eof
           raise ResponseError, 'Empty image response' if bytes.zero?
         end
 
-        private_class_method :validate
+        private_class_method :checked_length, :enforce_limit, :validate
       end
       private_constant :ResponseBody
 
@@ -72,8 +84,8 @@ module Irasutoya
       end
       private_constant :SessionCache
 
-      def self.fetch(uri, &on_chunk)
-        with_sessions { |transfer| transfer.fetch(uri, &on_chunk) }
+      def self.fetch(uri, max_bytes: nil, &on_chunk)
+        with_sessions { |transfer| transfer.fetch(uri, max_bytes:, &on_chunk) }
       end
 
       def self.copy(uri, destination, max_bytes:)

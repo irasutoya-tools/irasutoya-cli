@@ -3,10 +3,11 @@
 require 'irasutoya'
 require 'irasutoya/cli/illustration'
 require 'json'
-require 'open-uri'
+require 'net/http'
 require 'irasutoya/cli/preview'
 
 RSpec.describe 'JSON Lines output' do
+  let(:http) { instance_double(Net::HTTP) }
   let(:runner) { Irasutoya::Cli::Runner }
   let(:result) do
     {
@@ -44,6 +45,8 @@ RSpec.describe 'JSON Lines output' do
   it 'parses search and detail HTML, skipping a result with an unsupported URL scheme' do
     invalid_url = 'ftp://example.com/missing.html'
     page_url = result.fetch('page_url')
+    allow(Net::HTTP).to receive(:start).with('www.irasutoya.com', 443, use_ssl: true, max_retries: 0,
+                                           ignore_eof: false).and_yield(http)
     stub_html('https://www.irasutoya.com/search?q=%E7%8C%AB+%26+%E7%8A%AC', <<~HTML)
       <div class="box"><a href="#{invalid_url}"></a><a>Invalid result</a></div>
       <div class="box"><a href="#{page_url.sub('https:', 'http:')}"></a><a>Search title</a></div>
@@ -82,9 +85,10 @@ RSpec.describe 'JSON Lines output' do
   end
 
   def stub_html(url, html)
-    expect(OpenURI).to receive(:open_http).with(anything, URI.parse(url), anything, anything) do |buffer|
-      buffer << html
-      buffer.io.rewind
-    end
+    response = Net::HTTPOK.new('1.1', '200', 'OK')
+    response['content-type'] = 'text/html; charset=UTF-8'
+    expect(http).to receive(:request_get).with(URI.parse(url).request_uri, 'Accept-Encoding' => 'identity')
+      .and_yield(response)
+    allow(response).to receive(:read_body).and_yield(html)
   end
 end

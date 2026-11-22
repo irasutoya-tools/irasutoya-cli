@@ -122,6 +122,22 @@ RSpec.describe Irasutoya::Cli::Runner do
     end
   end
 
+  it 'rejects oversized headers while the server withholds the body and previews the next image' do
+    stub_const('Irasutoya::Cli::ImageTransfer::MAX_IMAGE_BYTES', 4)
+    serve_previews(
+      [['/oversized.png', '200 OK', { 'Content-Length' => '5' }]],
+      [['/next.png', '200 OK', {}, 'next']]
+    ) do |origin|
+      allow(Irasutoya::Cli::Illustration).to receive(:random)
+        .and_return(illustration("#{origin}/oversized.png", "#{origin}/next.png"))
+
+      Timeout.timeout(5) { runner.random }
+
+      expect(runner).to have_received(:say).with("warn: Image preview exceeds the 4-byte limit", :yellow).once
+      expect(rendered).to eq(['next'])
+    end
+  end
+
   it 'warns once for an empty response and renders the next image' do
     serve_previews(
       [['/empty.png', '200 OK']],
@@ -235,8 +251,8 @@ RSpec.describe Irasutoya::Cli::Runner do
     socket.to_enum(:each_line).take_while { |line| line != "\r\n" }
     return unless status
 
-    socket.write("HTTP/1.1 #{status}\r\nContent-Length: #{body.bytesize}\r\n")
-    headers.each { |name, value| socket.write("#{name}: #{value}\r\n") }
+    socket.write("HTTP/1.1 #{status}\r\n")
+    { 'Content-Length' => body.bytesize }.merge(headers).each { |name, value| socket.write("#{name}: #{value}\r\n") }
     socket.write("\r\n")
     return socket.write(body) unless delay
 
