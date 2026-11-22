@@ -1,14 +1,12 @@
 # frozen_string_literal: true
 
-require 'irasutoya'
-require 'irasutoya/cli/https_url'
+require 'irasutoya/cli/detail_page_parser'
+require 'irasutoya/cli/html_page'
 
 module Irasutoya
   module Cli
     class Illustration < Irasutoya::Irasuto
-      def self.fetch_page_and_parse(url)
-        super(HttpsUrl.parse(url).to_s)
-      end
+      extend HtmlPage
     end
   end
 end
