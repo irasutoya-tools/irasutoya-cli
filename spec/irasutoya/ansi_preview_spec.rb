@@ -21,6 +21,33 @@ RSpec.describe 'ANSI image previews' do
       .to output(/\e\[38;2;12;34;56m/).to_stdout
   end
 
+  [4, 5].each do |height|
+    it "matches the encoder's output for a #{height}-row PNG" do
+      image = ChunkyPNG::Image.new(2, height, ChunkyPNG::Color::TRANSPARENT)
+      height.times { |y| image[y % 2, y] = ChunkyPNG::Color.rgb(12, 34, y) }
+      png = StringIO.new(image.to_blob)
+      encoder = TerminalImage::AnsiEncoder
+      allow(encoder).to receive(:terminal_width).and_return(80)
+      expected = "#{encoder.encode(png)}\n"
+
+      expect { Irasutoya::Cli::Preview.show(png) }.to output(expected).to_stdout
+    end
+  end
+
+  it 'writes each line before encoding the next pair of rows in a tall PNG' do
+    image = ChunkyPNG::Image.new(1, 2000, ChunkyPNG::Color.rgb(12, 34, 56))
+    line = "\e[38;2;12;34;56m\e[48;2;12;34;56m▀\e[0m\n"
+    lines_encoded = 0
+    allow(TerminalImage::AnsiEncoder).to receive(:encode_line).and_wrap_original do |encode, top, bottom|
+      expect($stdout.pos).to eq(lines_encoded * line.bytesize)
+      lines_encoded += 1
+      encode.call(top, bottom)
+    end
+
+    expect { Irasutoya::Cli::Preview.show(StringIO.new(image.to_blob)) }
+      .to output(line * 1000).to_stdout
+  end
+
   it 'requires ImageMagick to preview a GIF through the ANSI fallback' do
     gif = StringIO.new('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'.unpack1('m0'))
 
