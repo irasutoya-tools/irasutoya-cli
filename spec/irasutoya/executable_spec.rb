@@ -20,6 +20,50 @@ RSpec.describe 'irasutoya executable' do # rubocop:disable Metrics/BlockLength
     expect(status.exitstatus).to be > 0
   end
 
+  describe 'redirected text output' do
+    let(:run_with_fixture) do
+      <<~'RUBY'
+        require 'irasutoya/cli/illustration'
+
+        module IllustrationFixture
+          def random
+            Irasutoya::Irasuto.new(
+              url: 'https://example.com/cat.html', title: 'Cat',
+              description: 'A cat', image_urls: ['https://example.com/cat.png']
+            )
+          end
+
+          def search(query:)
+            result = random
+            link = Irasutoya::IrasutoLink.new(title: result.title, show_url: result.url)
+            link.define_singleton_method(:fetch_irasuto) { result }
+            [link]
+          end
+        end
+
+        Irasutoya::Cli::Illustration.extend(IllustrationFixture)
+        load ARGV.shift
+        abort 'Loaded terminal_image' if defined?(TerminalImage)
+        abort 'Loaded ChunkyPNG' if defined?(ChunkyPNG)
+      RUBY
+    end
+
+    [%w[search cat], %w[random]].each do |command|
+      it "prints metadata for #{command.first} without loading preview dependencies" do
+        stdout, stderr, status = Open3.capture3(RbConfig.ruby, '-e', run_with_fixture, '--', executable, *command)
+
+        expect(status.success?).to be(true), stderr
+        expect(stderr).to be_empty
+        expect(stdout).to eq(<<~EXPECTED)
+          Page URL:    https://example.com/cat.html
+          Title:       Cat
+          Description: A cat
+          Image URL:   https://example.com/cat.png
+        EXPECTED
+      end
+    end
+  end
+
   describe 'download' do
     let(:page_url) { 'https://www.irasutoya.com/cat.html' }
 

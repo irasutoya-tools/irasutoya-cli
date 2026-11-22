@@ -45,11 +45,14 @@ module Irasutoya
       desc 'download PAGE_URL', 'Saves all images from an illustration page'
       method_option :output, type: :string, required: true, banner: 'DIR'
       def download(page_url)
+        require 'irasutoya/cli/download'
+
         directory = options[:output]
         raise Thor::Error, 'Provide an output directory with --output.' if directory.empty?
 
-        require 'irasutoya/cli/download'
         Download.new(page_url, directory).save { |path| say "Saved: #{path}" }
+      rescue Download::SaveError => e
+        raise Thor::Error, e.message
       end
 
       private
@@ -66,10 +69,10 @@ module Irasutoya
       def display(irasuto)
         return display_jsonl(irasuto) if options[:jsonl]
 
-        require 'irasutoya/cli/preview'
-
         display_metadata(irasuto)
         return unless $stdout.tty?
+
+        require 'irasutoya/cli/preview'
 
         irasuto.image_urls.each(&method(:show_preview))
       end
