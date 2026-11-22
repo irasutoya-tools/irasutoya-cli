@@ -194,6 +194,22 @@ RSpec.describe 'irasutoya download' do
     expect(File.binread(path)).to eq(image_data.first)
   end
 
+  it 'reports a connection closed before headers and only announces and keeps the completed image' do
+    allow(http).to receive(:request_get).with(URI.parse(image_urls.last).request_uri, request_headers) do
+      Net::HTTPResponse.read_new(Net::BufferedIO.new(StringIO.new('')))
+    end
+    path = File.join(directory, 'cat.png')
+    stub_const('ARGV', ['download', page_url, '--output', directory])
+    executable = File.expand_path('../../exe/irasutoya', __dir__)
+
+    expect do
+      expect { load executable }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+    end.to output("Could not fetch image #{image_urls.last}: end of file reached\n").to_stderr
+      .and output("Saved: #{path}\n").to_stdout
+    expect(Dir.children(directory)).to eq(['cat.png'])
+    expect(File.binread(path)).to eq(image_data.first)
+  end
+
   it 'stops reading an oversized response without Content-Length and removes its temporary file' do
     stub_const('Irasutoya::Cli::ImageTransfer::MAX_IMAGE_BYTES', image_data.first.bytesize)
     expect(Net::HTTP).to receive(:start).once.and_return(http)
