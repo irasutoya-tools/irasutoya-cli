@@ -96,7 +96,7 @@ module Irasutoya
 
       def show_preview(image_url)
         Tempfile.create(binmode: true) do |file|
-          download_preview(HttpsUrl.parse(image_url), file)
+          @preview_transfer.copy(HttpsUrl.parse(image_url), file, max_bytes: ImageTransfer::MAX_IMAGE_BYTES)
           Preview.show(file.tap(&:rewind))
         end
       rescue ImageTransfer::SizeLimitExceededError
@@ -111,12 +111,6 @@ module Irasutoya
           @preview_transfer = transfer
           yield
         end
-      end
-
-      def download_preview(uri, file)
-        @preview_transfer.copy(uri, file, max_bytes: ImageTransfer::MAX_IMAGE_BYTES)
-      rescue EOFError => e
-        raise ImageTransfer::ResponseError, e.message
       end
     end
   end
