@@ -53,4 +53,42 @@ RSpec.describe 'irasutoya executable' do # rubocop:disable Metrics/BlockLength
     expect(status).to be_success
     expect(stdout).to include(/\bdownload\b/, /\brandom\b/, /\bsearch\b/)
   end
+
+  describe 'redirected text output' do
+    let(:run_with_fixture) do
+      <<~'RUBY'
+        require 'irasutoya/cli/illustration'
+
+        page_url = 'https://www.irasutoya.com/cat.html'
+        result = Irasutoya::Irasuto.new(
+          url: page_url, title: 'Cat', description: 'A cat illustration',
+          image_urls: ['https://example.com/cat.png']
+        )
+        link = Irasutoya::IrasutoLink.new(title: result.title, show_url: page_url)
+        link.define_singleton_method(:fetch_irasuto) { result }
+        illustration = Irasutoya::Cli::Illustration
+        illustration.define_singleton_method(:search) { |query:| [link] }
+        illustration.define_singleton_method(:random) { result }
+
+        load ARGV.shift
+        abort 'Loaded terminal_image' if defined?(TerminalImage)
+        abort 'Loaded ChunkyPNG' if defined?(ChunkyPNG)
+      RUBY
+    end
+
+    [%w[search cat], %w[random]].each do |args|
+      it "prints metadata for #{args.first} without loading the preview renderer" do
+        stdout, stderr, status = Open3.capture3(RbConfig.ruby, '-e', run_with_fixture, '--', executable, *args)
+
+        expect(status.success?).to be(true), stderr
+        expect(stderr).to be_empty
+        expect(stdout).to eq(<<~TEXT)
+          Page URL:    https://www.irasutoya.com/cat.html
+          Title:       Cat
+          Description: A cat illustration
+          Image URL:   https://example.com/cat.png
+        TEXT
+      end
+    end
+  end
 end
