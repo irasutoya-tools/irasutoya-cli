@@ -51,11 +51,37 @@ RSpec.describe Irasutoya::Cli::Runner do
         result = illustration("#{origin}/#{name}.png")
         instance_double(Irasutoya::IrasutoLink, show_url: result.url, fetch_irasuto: result)
       end
-      allow(Irasutoya::Irasuto).to receive(:search).with(query: 'query').and_return(links)
+      allow(Irasutoya::Cli::Illustration).to receive(:search).with(query: 'query').and_return(links)
 
       runner.search('query')
 
       expect(rendered).to eq(%w[first second])
+    end
+  end
+
+  {
+    'empty' => ['', ''],
+    'unsupported' => ['ftp://example.com/image.png', 'ftp://example.com/image.png'],
+    'malformed with control characters' => ["https://example.com/\e", 'https://example.com/\x1B']
+  }.each do |kind, (invalid_url, escaped_url)|
+    it "warns once and continues the search when an image URL is #{kind}" do
+      serve_previews([['/first.png', '200 OK', {}, 'first'], ['/second.png', '200 OK', {}, 'second']]) do |origin|
+        first = Irasutoya::Irasuto.new(url: "#{origin}/first.html", title: 'First', description: '',
+                                      image_urls: [invalid_url, "#{origin}/first.png"])
+        second = illustration("#{origin}/second.png")
+        links = [first, second].map do |result|
+          instance_double(Irasutoya::IrasutoLink, show_url: result.url, fetch_irasuto: result)
+        end
+        allow(Irasutoya::Cli::Illustration).to receive(:search).with(query: 'query').and_return(links)
+
+        runner.search('query')
+
+        expect(runner).to have_received(:say).with(start_with("warn: Could not preview #{escaped_url}:"), :yellow).once
+        expect(runner).to have_received(:say).with(start_with('warn:'), :yellow).once
+        expect(runner).to have_received(:say).with("Page URL:    #{second.url}")
+        expect(Net::HTTP).to have_received(:start).once
+        expect(rendered).to eq(%w[first second])
+      end
     end
   end
 
@@ -68,7 +94,7 @@ RSpec.describe Irasutoya::Cli::Runner do
       later_url = "#{origin}/second.png"
       results = [illustration(closed_url, "#{origin}/first.png"), illustration(later_url)]
       links = results.map { |result| instance_double(Irasutoya::IrasutoLink, show_url: result.url, fetch_irasuto: result) }
-      allow(Irasutoya::Irasuto).to receive(:search).with(query: 'query').and_return(links)
+      allow(Irasutoya::Cli::Illustration).to receive(:search).with(query: 'query').and_return(links)
 
       runner.search('query')
 
@@ -90,7 +116,7 @@ RSpec.describe Irasutoya::Cli::Runner do
       later_url = "#{origin}/later.png"
       results = [illustration(failed_url, "#{origin}/next.png"), illustration(later_url)]
       links = results.map { |result| instance_double(Irasutoya::IrasutoLink, show_url: result.url, fetch_irasuto: result) }
-      allow(Irasutoya::Irasuto).to receive(:search).with(query: 'query').and_return(links)
+      allow(Irasutoya::Cli::Illustration).to receive(:search).with(query: 'query').and_return(links)
 
       runner.search('query')
 

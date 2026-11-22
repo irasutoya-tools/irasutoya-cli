@@ -136,7 +136,7 @@ module Irasutoya
         origin = [uri.scheme, uri.hostname&.downcase, uri.port]
         yield session(uri, origin)
         completed = true
-      rescue Net::HTTPExceptions => e
+      rescue Net::HTTPExceptions, EOFError => e
         raise ResponseError, e.message
       ensure
         @sessions.discard(origin) unless completed

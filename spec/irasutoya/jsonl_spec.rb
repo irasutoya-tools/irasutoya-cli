@@ -3,7 +3,7 @@
 require 'irasutoya'
 require 'irasutoya/cli/illustration'
 require 'json'
-require 'open-uri'
+require 'net/http'
 require 'irasutoya/cli/preview'
 
 RSpec.describe 'JSON Lines output' do
@@ -36,7 +36,7 @@ RSpec.describe 'JSON Lines output' do
   end
 
   it 'prints nothing when search has no results' do
-    allow(Irasutoya::Irasuto).to receive(:search).with(query: 'missing').and_return([])
+    allow(Irasutoya::Cli::Illustration).to receive(:search).with(query: 'missing').and_return([])
 
     expect { runner.start(%w[search missing --jsonl]) }.to output('').to_stdout.and output('').to_stderr
   end
@@ -68,7 +68,7 @@ RSpec.describe 'JSON Lines output' do
     last_url = 'https://www.irasutoya.com/2026/01/another-cat.html'
     last = instance_double(Irasutoya::IrasutoLink, show_url: last_url)
     allow(last_illustration).to receive(:url).and_return(last_url)
-    allow(Irasutoya::Irasuto).to receive(:search).with(query: '猫').and_return([link, missing, last])
+    allow(Irasutoya::Cli::Illustration).to receive(:search).with(query: '猫').and_return([link, missing, last])
     allow(missing).to receive(:fetch_irasuto) { raise Timeout::Error, 'timed out' }
     allow(last).to receive(:fetch_irasuto) do
       expect($stdout.string.lines.map { |line| JSON.parse(line) }).to eq([result])
@@ -82,9 +82,13 @@ RSpec.describe 'JSON Lines output' do
   end
 
   def stub_html(url, html)
-    expect(OpenURI).to receive(:open_http).with(anything, URI.parse(url), anything, anything) do |buffer|
-      buffer << html
-      buffer.io.rewind
-    end
+    uri = URI.parse(url)
+    http = instance_double(Net::HTTP)
+    response = Net::HTTPOK.new('1.1', '200', 'OK')
+    response['content-type'] = 'text/html; charset=UTF-8'
+    allow(response).to receive(:read_body).and_yield(html)
+    expect(Net::HTTP).to receive(:start).with(uri.hostname, uri.port, use_ssl: true, max_retries: 0,
+                                             ignore_eof: false).and_yield(http)
+    expect(http).to receive(:request_get).with(uri.request_uri, 'Accept-Encoding' => 'identity').and_yield(response)
   end
 end
