@@ -1,0 +1,27 @@
+# CLI architecture
+
+Start with [the executable](../exe/irasutoya), which loads the CLI and starts
+the Thor runner. [`Runner`](../lib/irasutoya/cli.rb) defines the commands,
+their arguments and options, and the output for search and random results.
+
+- **Search and random** use the `irasutoya` gem to find and parse illustration
+  pages. [`Illustration`](../lib/irasutoya/cli/illustration.rb) adapts the gem's
+  random-page fetch to use [`HttpsUrl`](../lib/irasutoya/cli/https_url.rb), which
+  also normalizes the URLs passed to search result fetches and image transfers.
+- **Output and previews** start in the runner. JSON Lines output takes an early
+  return, while text output can include previews when standard output is a
+  terminal. [`Preview`](../lib/irasutoya/cli/preview.rb) selects the rendering
+  path and uses [`PreviewPNG`](../lib/irasutoya/cli/preview_png.rb) to decode
+  PNG data for ANSI rendering.
+- **Image transfers** for both previews and downloads go through
+  [`ImageTransfer`](../lib/irasutoya/cli/image_transfer.rb), which streams
+  HTTPS responses and manages connections and redirects.
+  [`Download`](../lib/irasutoya/cli/download.rb) validates the illustration
+  page URL, fetches its image URLs, and saves each image through a temporary
+  file and a hard link that avoids overwriting an existing file.
+
+For examples of how each path is exercised, see the
+[command specs](../spec/irasutoya/cli_spec.rb),
+[JSON Lines specs](../spec/irasutoya/jsonl_spec.rb),
+[preview specs](../spec/irasutoya/ansi_preview_spec.rb), and
+[download specs](../spec/irasutoya/download_spec.rb).

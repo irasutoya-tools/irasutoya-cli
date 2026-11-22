@@ -32,8 +32,8 @@ Run `irasutoya random` to browse a randomly selected illustration or
 ## Download images from a checkout
 
 The `download` command requires a checkout when using the 1.0.1 release.
-Install the Ruby version in [.ruby-version](.ruby-version) and the Bundler version under
-`BUNDLED WITH` in [Gemfile.lock](Gemfile.lock), then run:
+Install the Ruby version in [.ruby-version](https://github.com/irasutoya-tools/irasutoya-cli/blob/master/.ruby-version)
+and the Bundler version under `BUNDLED WITH` in [Gemfile.lock](https://github.com/irasutoya-tools/irasutoya-cli/blob/master/Gemfile.lock), then run:
 
 ```sh
 $ git clone https://github.com/irasutoya-tools/irasutoya-cli.git
@@ -54,8 +54,8 @@ The command creates the destination directory if needed, saves every image on th
 
 Each image download is limited to 10 MiB (10,485,760 bytes). If an image exceeds the limit, the command stops and discards that download. Images already saved are kept.
 
-See the [CLI reference](docs/usage.md) for checkout command arguments, output,
-and preview behavior.
+See the [CLI reference](https://github.com/irasutoya-tools/irasutoya-cli/blob/master/docs/usage.md)
+for checkout command arguments, output, and preview behavior.
 
 ## Contributing
 
