@@ -1,8 +1,10 @@
 # frozen_string_literal: true
 
 require 'fileutils'
+require 'pathname'
 require 'rubygems/package'
 require 'tmpdir'
+require 'uri'
 
 RSpec.describe 'The gem package' do
   it 'builds the same runtime package from a source archive without Git metadata' do
@@ -23,9 +25,21 @@ RSpec.describe 'The gem package' do
       expect(package.contents).to match_array(checkout.files)
       expect(package.contents).to include('lib/irasutoya/cli.rb', 'exe/irasutoya', 'README.md', 'LICENSE.txt')
       expect(package.contents).not_to include('.github/workflows/test.yml', 'Guardfile', '.rubocop.yml', 'Gemfile')
+      readme = File.read(File.join(source, 'README.md'))
+      expect(local_readme_targets(readme) - package.contents).to be_empty
       expect(package.spec.bindir).to eq('exe')
       expect(package.spec.executables).to eq(['irasutoya'])
       expect(package.spec.executables).to eq(checkout.executables)
     end
+  end
+
+  def local_readme_targets(readme)
+    destinations = readme.scan(/\]\(\s*(<[^>]+>|[^\s)]+)|^ {0,3}\[(?!\^)[^\]\n]+\]:[ \t]*(<[^>]+>|\S+)/)
+    destinations.flatten.compact.filter_map do |destination|
+      path = destination.delete_prefix('<').delete_suffix('>').split(/[?#]/, 2).first
+      next if path.to_s.empty? || path.match?(%r{\A(?:[a-z][a-z\d+.-]*:|//)}i)
+
+      Pathname.new(URI::DEFAULT_PARSER.unescape(path)).cleanpath.to_s
+    end.uniq
   end
 end
