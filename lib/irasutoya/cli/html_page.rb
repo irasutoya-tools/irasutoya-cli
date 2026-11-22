@@ -3,6 +3,7 @@
 require 'net/http'
 require 'open-uri'
 require 'irasutoya/cli/https_url'
+require 'irasutoya/cli/response_body'
 
 module Irasutoya
   module Cli
@@ -40,25 +41,9 @@ module Irasutoya
       end
 
       def parse_html(response, http)
-        check_html_size(response.content_length) unless response.key?('transfer-encoding')
-        Nokogiri::HTML.parse(read_html(response, http), nil, html_charset(response))
-      rescue IOError, Errno::EBADF => e
-        raise e.cause if e.cause.is_a?(Error)
-
-        raise
-      end
-
-      def read_html(response, http)
-        html = String.new(encoding: Encoding::BINARY)
-        response.read_body do |chunk|
-          check_html_size(html.bytesize + chunk.bytesize)
-          html << chunk
-        rescue Error
-          # Net::HTTP can still read the chunk terminator while unwinding.
-          http.finish
-          raise
-        end
-        html
+        limit_error = Error.new("HTML response exceeds the #{MAX_BYTES}-byte limit")
+        html = ResponseBody.read(response, http, max_bytes: MAX_BYTES, limit_error: limit_error)
+        Nokogiri::HTML.parse(html, nil, html_charset(response))
       end
 
       def html_charset(response)
@@ -66,10 +51,6 @@ module Irasutoya
         OpenURI::Meta.init(metadata)
         metadata.meta_add_field('content-type', response['content-type']) if response['content-type']
         metadata.charset
-      end
-
-      def check_html_size(bytes)
-        raise Error, "HTML response exceeds the #{MAX_BYTES}-byte limit" if bytes && bytes > MAX_BYTES
       end
 
       def html_redirect(uri, location)

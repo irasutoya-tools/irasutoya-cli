@@ -3,10 +3,10 @@
 require 'irasutoya'
 require 'irasutoya/cli/illustration'
 require 'json'
-require 'open-uri'
 require 'irasutoya/cli/preview'
 
 RSpec.describe 'JSON Lines output' do
+  let(:http) { instance_double(Net::HTTP) }
   let(:runner) { Irasutoya::Cli::Runner }
   let(:result) do
     {
@@ -82,9 +82,11 @@ RSpec.describe 'JSON Lines output' do
   end
 
   def stub_html(url, html)
-    expect(OpenURI).to receive(:open_http).with(anything, URI.parse(url), anything, anything) do |buffer|
-      buffer << html
-      buffer.io.rewind
-    end
+    uri = URI.parse(url)
+    response = Net::HTTPOK.new('1.1', '200', 'OK')
+    allow(Net::HTTP).to receive(:start).with(uri.hostname, uri.port, use_ssl: true, max_retries: 0,
+                                           ignore_eof: false).and_yield(http)
+    expect(http).to receive(:request_get).with(uri.request_uri, 'Accept-Encoding' => 'identity').and_yield(response)
+    allow(response).to receive(:read_body).and_yield(html)
   end
 end

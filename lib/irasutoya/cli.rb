@@ -23,7 +23,7 @@ module Irasutoya
       def random
         require 'irasutoya/cli/illustration'
         with_preview_sessions { display(Illustration.random) }
-      rescue HtmlPage::Error => e
+      rescue HtmlPage::Error, Illustration::FeedError => e
         raise Thor::Error, e.message
       end
 
