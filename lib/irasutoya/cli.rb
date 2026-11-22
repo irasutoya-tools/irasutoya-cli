@@ -42,20 +42,30 @@ module Irasutoya
         raise Thor::Error, e.message
       end
 
-      desc 'download PAGE_URL', 'Saves all images from an illustration page'
+      desc 'download [PAGE_URL]', 'Saves all images from an illustration page or a list of pages'
+      method_option :input, type: :string, banner: 'FILE', desc: 'Read page URLs from FILE (use - for stdin)'
       method_option :output, type: :string, required: true, banner: 'DIR'
-      def download(page_url)
+      def download(page_url = nil)
         require 'irasutoya/cli/download'
+        require 'irasutoya/cli/download_list'
 
+        input = options[:input]
         directory = options[:output]
         raise Thor::Error, 'Provide an output directory with --output.' if directory.empty?
+        raise Thor::Error, 'Provide either PAGE_URL or --input FILE.' if page_url.nil? == input.nil?
 
-        Download.new(page_url, directory).save { |path| say "Saved: #{path}" }
-      rescue Download::SaveError => e
-        raise Thor::Error, e.message
+        return download_page(page_url, directory) unless input
+
+        DownloadList.new(input).each { |url| download_page(url, directory) }
       end
 
       private
+
+      def download_page(url, directory)
+        Download.new(url, directory).save { |path| say "Saved: #{path}" }
+      rescue Download::SaveError => e
+        raise Thor::Error, e.message
+      end
 
       def fetch_result(link)
         url = HttpsUrl.parse(link.show_url).to_s

@@ -17,7 +17,7 @@ RSpec.describe 'CLI help' do
     stdout, stderr, status = Open3.capture3(RbConfig.ruby, '-Ilib', '-e', run_help, '--', 'help', chdir: root)
 
     expect(status.success?).to be(true), stderr
-    expect(stdout).to include('Commands:', 'irasutoya download PAGE_URL', 'irasutoya random', 'irasutoya search {query}')
+    expect(stdout).to include('Commands:', 'irasutoya download [PAGE_URL]', 'irasutoya random', 'irasutoya search {query}')
   end
 
   it 'describes search without loading the scraper or image renderer' do
