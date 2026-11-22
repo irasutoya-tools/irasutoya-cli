@@ -10,6 +10,11 @@ RSpec.describe 'The test workflow' do
     test_job.fetch('steps').find { |step| step.fetch('uses', '').start_with?('codecov/codecov-action@') }
   end
 
+  it 'limits the default token permissions to reading repository contents' do
+    expect(workflow.fetch('permissions')).to eq('contents' => 'read')
+    expect(workflow.fetch('jobs').fetch('lint')).not_to have_key('permissions')
+  end
+
   it 'caches Bundler dependencies in the lint and test jobs' do
     %w[lint test].each do |job_name|
       job = workflow.fetch('jobs').fetch(job_name)
@@ -20,7 +25,7 @@ RSpec.describe 'The test workflow' do
   end
 
   it 'uploads coverage using GitHub OIDC without a Codecov upload token' do
-    expect(test_job.fetch('permissions')).to include('id-token' => 'write')
+    expect(test_job.fetch('permissions')).to eq('contents' => 'read', 'id-token' => 'write')
     expect(upload_step.fetch('with')).to include('use_oidc' => true, 'files' => 'coverage/coverage.xml')
     expect(upload_step.fetch('with')).not_to have_key('token')
     expect(File.read(path)).not_to include('CODECOV_TOKEN')
