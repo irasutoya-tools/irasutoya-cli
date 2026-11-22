@@ -78,6 +78,29 @@ RSpec.describe Irasutoya::Cli::Runner do
     end
   end
 
+  it 'warns once on the sixth redirect and previews the next image and result' do
+    redirects = (0...6).map do |hop|
+      ["/redirect-#{hop}.png", '302 Found', { 'Location' => "/redirect-#{hop + 1}.png" }, '']
+    end
+    serve_previews(redirects + [
+      ['/next.png', '200 OK', {}, 'next'],
+      ['/later.png', '200 OK', {}, 'later']
+    ]) do |origin|
+      failed_url = "#{origin}/redirect-0.png"
+      later_url = "#{origin}/later.png"
+      results = [illustration(failed_url, "#{origin}/next.png"), illustration(later_url)]
+      links = results.map { |result| instance_double(Irasutoya::IrasutoLink, show_url: result.url, fetch_irasuto: result) }
+      allow(Irasutoya::Irasuto).to receive(:search).with(query: 'query').and_return(links)
+
+      runner.search('query')
+
+      expect(runner).to have_received(:say).with(start_with('warn:'), :yellow).once
+      expect(runner).to have_received(:say).with("warn: Could not preview #{failed_url}: Too many image redirects", :yellow)
+      expect(runner).to have_received(:say).with("Page URL:    #{later_url}")
+      expect(rendered).to eq(%w[next later])
+    end
+  end
+
   it 'warns once when a trickling body exceeds the deadline and previews the next image' do
     stub_const('Irasutoya::Cli::ImageTransfer::TRANSFER_TIMEOUT', 0.25)
     serve_previews(
