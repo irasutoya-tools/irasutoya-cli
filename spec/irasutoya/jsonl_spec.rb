@@ -36,7 +36,7 @@ RSpec.describe 'JSON Lines output' do
   end
 
   it 'prints nothing when search has no results' do
-    allow(Irasutoya::Irasuto).to receive(:search).with(query: 'missing').and_return([])
+    allow(Irasutoya::Cli::Illustration).to receive(:search).with(query: 'missing').and_return([])
 
     expect { runner.start(%w[search missing --jsonl]) }.to output('').to_stdout.and output('').to_stderr
   end
@@ -68,7 +68,7 @@ RSpec.describe 'JSON Lines output' do
     last_url = 'https://www.irasutoya.com/2026/01/another-cat.html'
     last = instance_double(Irasutoya::IrasutoLink, show_url: last_url)
     allow(last_illustration).to receive(:url).and_return(last_url)
-    allow(Irasutoya::Irasuto).to receive(:search).with(query: '猫').and_return([link, missing, last])
+    allow(Irasutoya::Cli::Illustration).to receive(:search).with(query: '猫').and_return([link, missing, last])
     allow(missing).to receive(:fetch_irasuto) { raise Timeout::Error, 'timed out' }
     allow(last).to receive(:fetch_irasuto) do
       expect($stdout.string.lines.map { |line| JSON.parse(line) }).to eq([result])
