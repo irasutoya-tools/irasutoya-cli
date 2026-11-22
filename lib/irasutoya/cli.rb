@@ -28,7 +28,7 @@ module Irasutoya
       desc 'search {query}', 'Shows images from up to three result pages. Each page can contain multiple images.'
       method_option :jsonl, **JSONL_OPTION
       def search(query)
-        require 'irasutoya'
+        require 'irasutoya/cli/detail_page_parser'
         with_preview_sessions do
           Irasutoya::Irasuto
             .search(query:)

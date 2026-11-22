@@ -41,7 +41,7 @@ RSpec.describe 'JSON Lines output' do
     expect { runner.start(%w[search missing --jsonl]) }.to output('').to_stdout.and output('').to_stderr
   end
 
-  it 'parses search and detail HTML, skipping a result with an unsupported URL scheme' do
+  it 'skips results with unsupported URL schemes and images without sources' do
     invalid_url = 'ftp://example.com/missing.html'
     page_url = result.fetch('page_url')
     stub_html('https://www.irasutoya.com/search?q=%E7%8C%AB+%26+%E7%8A%AC', <<~HTML)
@@ -51,7 +51,9 @@ RSpec.describe 'JSON Lines output' do
     stub_html(page_url, <<~HTML)
       <div class="post"><div class="title"><h2>白い猫</h2></div></div>
       <div class="entry">
-        <div class="separator"><img src="//example.com/cat.png"><img src="https://example.com/cat2.png"></div>
+        <div class="separator">
+          <img src="//example.com/cat.png"><img alt="placeholder"><img src="https://example.com/cat2.png">
+        </div>
         <div class="separator">猫のイラスト&#10;別のポーズ</div>
       </div>
     HTML
