@@ -10,6 +10,15 @@ RSpec.describe 'The test workflow' do
     test_job.fetch('steps').find { |step| step.fetch('uses', '').start_with?('codecov/codecov-action@') }
   end
 
+  it 'caches Bundler dependencies in the lint and test jobs' do
+    %w[lint test].each do |job_name|
+      job = workflow.fetch('jobs').fetch(job_name)
+      setup_step = job.fetch('steps').find { |step| step.fetch('uses', '').start_with?('ruby/setup-ruby@') }
+
+      expect(setup_step.fetch('with')).to include('bundler-cache' => true)
+    end
+  end
+
   it 'uploads coverage using GitHub OIDC without a Codecov upload token' do
     expect(test_job.fetch('permissions')).to include('id-token' => 'write')
     expect(upload_step.fetch('with')).to include('use_oidc' => true, 'files' => 'coverage/coverage.xml')
