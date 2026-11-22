@@ -37,7 +37,8 @@ module Irasutoya
       def process_page(number)
         yield
         true
-      rescue Thor::Error, Timeout::Error, SocketError, SystemCallError, IOError, OpenSSL::SSL::SSLError => e
+      rescue Thor::Error, Timeout::Error, SocketError, SystemCallError, IOError, OpenSSL::SSL::SSLError,
+             Net::HTTPBadResponse, Net::HTTPHeaderSyntaxError => e
         warn escape("Line #{number}: Could not download page: #{e.message}")
         false
       end

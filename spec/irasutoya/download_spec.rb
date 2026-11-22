@@ -549,6 +549,25 @@ RSpec.describe 'irasutoya download' do
       $stdin = original_stdin
     end
 
+    [Net::HTTPBadResponse, Net::HTTPHeaderSyntaxError].each do |error_class|
+      it "reports #{error_class} with the line number and downloads the next page" do
+        allow(Irasutoya::IrasutoLink).to receive(:new).with(title: nil, show_url: second_url).and_call_original
+        page_http = instance_double(Net::HTTP)
+        allow(Net::HTTP).to receive(:start).with('www.irasutoya.com', 443, use_ssl: true, max_retries: 0,
+                                                ignore_eof: false).and_yield(page_http)
+        allow(page_http).to receive(:request_get).with(URI(second_url).request_uri, request_headers)
+                                                 .and_raise(error_class, 'Malformed HTTP response')
+        File.write(input_path, "\n#{second_url}\n#{page_url}\n")
+        paths = %w[cat.png cat-1.png].map { |name| File.join(directory, name) }
+
+        expect do
+          expect { run_list('--input', input_path) }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+        end.to output("Line 2: Could not download page: Malformed HTTP response\nFailed to download 1 page(s).\n").to_stderr
+          .and output(paths.map { |path| "Saved: #{path}\n" }.join).to_stdout
+        expect(paths.map { |path| File.binread(path) }).to eq(image_data)
+      end
+    end
+
     it 'reports an unreadable list' do
       expect do
         expect { run_list('--input', input_path) }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
