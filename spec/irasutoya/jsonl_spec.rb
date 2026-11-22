@@ -3,7 +3,7 @@
 require 'irasutoya'
 require 'irasutoya/cli/illustration'
 require 'json'
-require 'open-uri'
+require 'net/http'
 require 'irasutoya/cli/preview'
 
 RSpec.describe 'JSON Lines output' do
@@ -44,11 +44,14 @@ RSpec.describe 'JSON Lines output' do
   it 'parses search and detail HTML, skipping a result with an unsupported URL scheme' do
     invalid_url = 'ftp://example.com/missing.html'
     page_url = result.fetch('page_url')
-    stub_html('https://www.irasutoya.com/search?q=%E7%8C%AB+%26+%E7%8A%AC', <<~HTML)
+    http = instance_double(Net::HTTP)
+    expect(Net::HTTP).to receive(:start).with('www.irasutoya.com', 443, use_ssl: true, max_retries: 0,
+                                             ignore_eof: false).twice.and_yield(http)
+    stub_html(http, '/search?q=%E7%8C%AB+%26+%E7%8A%AC', <<~HTML)
       <div class="box"><a href="#{invalid_url}"></a><a>Invalid result</a></div>
       <div class="box"><a href="#{page_url.sub('https:', 'http:')}"></a><a>Search title</a></div>
     HTML
-    stub_html(page_url, <<~HTML)
+    stub_html(http, URI.parse(page_url).request_uri, <<~HTML)
       <div class="post"><div class="title"><h2>白い猫</h2></div></div>
       <div class="entry">
         <div class="separator"><img src="//example.com/cat.png"><img src="https://example.com/cat2.png"></div>
@@ -81,10 +84,10 @@ RSpec.describe 'JSON Lines output' do
       .and output("warn: Could not fetch result page #{missing_url}: timed out\n").to_stderr
   end
 
-  def stub_html(url, html)
-    expect(OpenURI).to receive(:open_http).with(anything, URI.parse(url), anything, anything) do |buffer|
-      buffer << html
-      buffer.io.rewind
-    end
+  def stub_html(http, path, html)
+    response = Net::HTTPOK.new('1.1', '200', 'OK')
+    response['content-type'] = 'text/html; charset=UTF-8'
+    allow(response).to receive(:read_body).and_yield(html.b)
+    expect(http).to receive(:request_get).with(path, 'Accept-Encoding' => 'identity').and_yield(response)
   end
 end

@@ -66,10 +66,10 @@ module Irasutoya
       def display(irasuto)
         return display_jsonl(irasuto) if options[:jsonl]
 
-        require 'irasutoya/cli/preview'
-
         display_metadata(irasuto)
         return unless $stdout.tty?
+
+        require 'irasutoya/cli/preview'
 
         irasuto.image_urls.each(&method(:show_preview))
       end
