@@ -142,18 +142,42 @@ RSpec.describe 'irasutoya download' do
   end
 
   context 'with 100 images sharing a basename' do
-    let(:image_urls) { Array.new(100) { |index| "https://example.com/#{index}/cat.png" } }
+    let(:stem) { 'a' * 4096 }
+    let(:image_urls) { Array.new(100) { |index| "https://example.com/#{index}/#{stem}.png" } }
     let(:image_data) { Array.new(100) { |index| "image #{index}" } }
 
-    it 'saves each image under a sequential name with one link attempt per image' do
+    it 'fits oversized names and saves each image with one link attempt per image' do
       expect(File).to receive(:link).exactly(100).times.and_call_original
-      names = ['cat.png', *(1...100).map { |index| "cat-#{index}.png" }]
+      names = Array.new(100) do |index|
+        ending = index.zero? ? '.png' : "-#{index}.png"
+        "#{stem[0, 255 - ending.bytesize]}#{ending}"
+      end
       paths = names.map { |name| File.join(directory, name) }
 
       expect { run_download }.to output(paths.map { |path| "Saved: #{path}\n" }.join).to_stdout
       expect(paths.map { |path| File.binread(path) }).to eq(image_data)
       expect(Dir.children(directory)).to match_array(names)
     end
+  end
+
+  it 'fits complete multibyte characters to the destination limit across a suffix digit boundary' do
+    FileUtils.mkdir_p(directory)
+    source = File.join(@workspace, 'image')
+    File.binwrite(source, 'download')
+    destination = instance_double(File, pathconf: 33)
+    allow(File).to receive(:open).and_call_original
+    allow(File).to receive(:open).with(directory).and_yield(destination)
+    occupied_names = ["#{'猫' * 9}.png", *(1..8).map { |index| "#{'猫' * 9}-#{index}.png" }]
+    occupied_names.each { |name| File.binwrite(File.join(directory, name), 'original') }
+    download = Irasutoya::Cli::Download.new(page_url, directory)
+    next_suffixes = Hash.new(0)
+    expect(File).to receive(:link).exactly(11).times.and_call_original
+
+    paths = Array.new(2) { download.send(:link_image, source, "#{'猫' * 100}.png", next_suffixes) }
+
+    expect(paths.map { |path| File.basename(path) }).to eq(["#{'猫' * 9}-9.png", "#{'猫' * 8}-10.png"])
+    expect(paths.map { |path| File.binread(path) }).to all(eq('download'))
+    expect(occupied_names.map { |name| File.binread(File.join(directory, name)) }).to all(eq('original'))
   end
 
   it 'retries when another writer claims the next suffix before the link' do
@@ -546,6 +570,16 @@ RSpec.describe 'irasutoya download' do
       expect([first_path, second_path].map { |path| File.binread(path) }).to eq(image_data)
       expect(Dir.children(directory)).to match_array([File.basename(first_path), File.basename(second_path)])
     end
+
+    it 'fits the name to 255 bytes when the directory limit cannot be queried' do
+      allow(File).to receive(:open).and_call_original
+      allow(File).to receive(:open).with(directory).and_raise(Errno::EACCES)
+      expect(File).to receive(:link).once.and_call_original
+      path = File.join(directory, "#{'a' * 251}.png")
+
+      expect { run_download }.to output("Saved: #{path}\n").to_stdout
+      expect(File.binread(path)).to eq(image_data.first)
+    end
   end
 
   context 'when the filename reaches the 255-byte component limit' do
@@ -570,6 +604,40 @@ RSpec.describe 'irasutoya download' do
       expect { run_download }.to output(paths.map { |path| "Saved: #{path}\n" }.join).to_stdout
       expect(paths.map { |path| File.binread(path) }).to eq(image_data)
       expect(occupied_paths.map { |path| File.binread(path) }).to all(eq('original'))
+    end
+  end
+
+  context 'when the full destination path exceeds the system limit' do
+    let(:filename) { "#{'a' * 200}.png" }
+    let(:image_urls) { ["https://example.com/#{filename}", "https://example.com/other/#{filename}"] }
+    let(:directory) do
+      workspace = File.realpath(@workspace)
+      path_limit = File.open(workspace) { |dir| dir.pathconf(Etc::PC_PATH_MAX) }
+      levels, tail = (path_limit - workspace.bytesize - 104).divmod(101)
+      File.join(workspace, *Array.new(levels, 'd' * 100), 'd' * (tail + 1))
+    end
+
+    it 'shortens both names, retaining the extension and collision suffix' do
+      paths = ["#{'a' * 96}.png", "#{'a' * 94}-1.png"].map { |name| File.join(directory, name) }
+
+      expect { run_download }.to output(paths.map { |path| "Saved: #{path}\n" }.join).to_stdout
+      expect(paths.map { |path| File.binread(path) }).to eq(image_data)
+      expect(Dir.children(directory)).to match_array(paths.map { |path| File.basename(path) })
+    end
+  end
+
+  context 'when no stem can fit the destination path' do
+    let(:image_urls) { ['https://example.com/a.png'] }
+
+    it 'reports the link error and removes the temporary file' do
+      allow(File).to receive(:link).and_raise(Errno::ENAMETOOLONG)
+      path = File.join(directory, '.png')
+
+      expect do
+        expect { run_download }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      end.to output("Could not save image at #{path}: #{Errno::ENAMETOOLONG.new.message}\n").to_stderr
+        .and output('').to_stdout
+      expect(Dir.children(directory)).to be_empty
     end
   end
 
