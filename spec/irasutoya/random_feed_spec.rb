@@ -61,7 +61,9 @@ RSpec.describe 'Random selection feed' do
     expect(feed).to receive(:read_body).and_yield(body[0, 32]).and_yield(body[32..])
     page = Net::HTTPOK.new('1.1', '200', 'OK')
     expect(http).to receive(:request_get).with('/cat.html', headers).and_yield(page)
-    allow(page).to receive(:read_body).and_yield('<div class="entry"><img src="https://example.com/cat.png"></div>')
+    allow(page).to receive(:read_body).and_yield(
+      '<div class="entry"><img data-src="placeholder.png"><img src="https://example.com/cat.png"></div>'
+    )
   end
 
   def expect_feed_failure(args)

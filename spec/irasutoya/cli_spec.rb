@@ -53,7 +53,7 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
     let(:runner) { Irasutoya::Cli::Runner.new([], {}, shell: Thor::Shell::Basic.new) }
     let(:image_data) { %w[first other] }
     let(:headers) { { 'Accept-Encoding' => 'identity' } }
-    let(:http) { instance_double(Net::HTTP, finish: nil) }
+    let(:http) { instance_double(Net::HTTP, started?: true, finish: nil) }
     let(:responses) do
       irasuto.image_urls.zip(image_data).to_h do |url, data|
         response = Net::HTTPOK.new('1.1', '200', 'OK')
