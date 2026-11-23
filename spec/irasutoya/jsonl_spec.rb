@@ -41,12 +41,12 @@ RSpec.describe 'JSON Lines output' do
     expect { runner.start(%w[search missing --jsonl]) }.to output('').to_stdout.and output('').to_stderr
   end
 
-  it 'skips invalid search links and passes the emitted page URL to download' do
+  it 'skips invalid links and images without sources and passes the emitted page URL to download' do
     invalid_urls = %w[https://example.com/cat.html https://www.irasutoya.com/cat]
     page_url = result.fetch('page_url')
-    http = instance_double(Net::HTTP)
+    http = instance_double(Net::HTTP, finish: nil)
     expect(Net::HTTP).to receive(:start).with('www.irasutoya.com', 443, use_ssl: true, max_retries: 0,
-                                             ignore_eof: false).exactly(3).times.and_yield(http)
+                                             ignore_eof: false).once.and_return(http)
     invalid_links = invalid_urls.map { |url| %(<div class="box"><a href="#{url}"></a><a>Invalid result</a></div>) }
     stub_html(http, '/search?q=%E7%8C%AB+%26+%E7%8A%AC', <<~HTML)
       #{invalid_links.join}
@@ -55,7 +55,9 @@ RSpec.describe 'JSON Lines output' do
     stub_html(http, URI.parse(page_url).request_uri, <<~HTML)
       <div class="post"><div class="title"><h2>白い猫</h2></div></div>
       <div class="entry">
-        <div class="separator"><img src="//example.com/cat.png"><img src="https://example.com/cat2.png"></div>
+        <div class="separator">
+          <img src="//example.com/cat.png"><img alt="placeholder"><img src="https://example.com/cat2.png">
+        </div>
         <div class="separator">猫のイラスト&#10;別のポーズ</div>
       </div>
     HTML
@@ -69,11 +71,23 @@ RSpec.describe 'JSON Lines output' do
       warn: Could not fetch result page #{invalid_urls[1]}: Page URL must be on irasutoya.com or www.irasutoya.com with a path ending in .html
     WARNINGS
 
-    stub_html(http, URI.parse(page_url).request_uri, '<div class="entry"></div>')
+    download_http = instance_double(Net::HTTP)
+    expect(Net::HTTP).to receive(:start).with('www.irasutoya.com', 443, use_ssl: true, max_retries: 0,
+                                             ignore_eof: false).once.and_yield(download_http)
+    stub_html(download_http, URI.parse(page_url).request_uri, '<div class="entry"></div>')
     expect do
       expect { runner.start(['download', records.first.fetch('page_url'), '--output', 'images']) }
         .to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
     end.to output("No images found on #{page_url}\n").to_stderr
+  end
+
+  it 'skips a search result with an unsupported URL scheme' do
+    url = 'ftp://example.com/missing.html'
+    invalid = instance_double(Irasutoya::IrasutoLink, show_url: url)
+    allow(Irasutoya::Cli::Illustration).to receive(:search).with(query: '猫').and_return([invalid])
+
+    expect { runner.start(%w[search 猫 --jsonl]) }
+      .to output('').to_stdout.and output("warn: Could not fetch result page #{url}: URL must use HTTPS\n").to_stderr
   end
 
   it 'warns on stderr and emits each successful result on its own line as search pages are fetched' do
