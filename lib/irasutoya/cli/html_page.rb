@@ -73,11 +73,8 @@ module Irasutoya
       end
 
       def html_redirect(uri, location)
-        target = uri + location.to_s
-        return target if location && target.is_a?(URI::HTTPS) && target.host
-
-        raise Error, 'Invalid HTTPS redirect for HTML page'
-      rescue URI::Error
+        HttpsUrl.resolve_redirect(uri, location)
+      rescue HttpsUrl::InvalidRedirect
         raise Error, 'Invalid HTTPS redirect for HTML page'
       end
     end

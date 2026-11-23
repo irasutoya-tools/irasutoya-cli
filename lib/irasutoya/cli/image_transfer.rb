@@ -2,6 +2,7 @@
 
 require 'net/http'
 require 'timeout'
+require 'irasutoya/cli/https_url'
 
 module Irasutoya
   module Cli
@@ -159,27 +160,12 @@ module Irasutoya
       end
 
       def redirect_uri(uri, response)
-        target = resolve_location(uri, response)
-        raise InsecureRedirectError, 'Image redirect must use HTTPS' unless target.is_a?(URI::HTTPS)
-
-        if target.host.to_s.empty? || !(1..65_535).cover?(target.port)
-          raise ResponseError, 'Image redirect has an invalid Location header'
-        end
-
-        target
-      end
-
-      def resolve_location(uri, response)
-        location = response['location']&.strip
-        raise ResponseError, 'Image redirect is missing a Location header value' if location.nil? || location.empty?
-
-        reference = URI.parse(location)
-        if location.start_with?('//') && reference.host.to_s.empty?
-          raise ResponseError, 'Image redirect has an invalid Location header'
-        end
-
-        uri + reference
-      rescue URI::Error
+        HttpsUrl.resolve_redirect(uri, response['location'])
+      rescue HttpsUrl::MissingLocation
+        raise ResponseError, 'Image redirect is missing a Location header value'
+      rescue HttpsUrl::InsecureRedirect
+        raise InsecureRedirectError, 'Image redirect must use HTTPS'
+      rescue HttpsUrl::InvalidRedirect
         raise ResponseError, 'Image redirect has an invalid Location header'
       end
     end
