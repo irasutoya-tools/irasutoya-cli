@@ -73,22 +73,51 @@ RSpec.describe Irasutoya::Cli::HtmlPage do
   end
 
   it 'closes an oversized chunked stream even when the chunk terminator never arrives' do
-    context = local_tls_context
-    store = OpenSSL::X509::Store.new
-    store.add_cert(context.cert)
-    allow(Net::HTTP).to receive(:start).and_wrap_original do |start, host, port, **options, &request|
-      start.call(host, port, nil, **options, cert_store: store, read_timeout: 1, &request)
-    end
-
-    TCPServer.open('127.0.0.1', 0) do |server|
-      tls_server = OpenSSL::SSL::SSLServer.new(server, context)
-      worker = Thread.new { serve_unterminated_chunk(tls_server) }
-      url = "https://127.0.0.1:#{server.addr[1]}/cat.html"
+    with_tls_server do |server, url|
+      worker = Thread.new { serve_unterminated_chunk(server) }
       expect(Nokogiri::HTML).not_to receive(:parse)
 
       expect { Irasutoya::Cli::Illustration.fetch_page_and_parse(url) }
         .to raise_error(described_class::Error, 'HTML response exceeds the 256-byte limit')
       expect(worker.join(5)).to eq(worker)
+    ensure
+      worker&.kill&.join
+    end
+  end
+
+  it 'applies one deadline across redirects and a body that keeps making read progress' do
+    stub_const('Irasutoya::Cli::HtmlPage::FETCH_TIMEOUT', 0.9)
+    with_tls_server do |server, url|
+      worker = Thread.new { serve_slow_redirect_and_body(server) }
+      started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+
+      expect { Irasutoya::Cli::Illustration.fetch_page_and_parse(url) }
+        .to raise_error(described_class::Error, 'HTML fetch deadline exceeded')
+      expect(Process.clock_gettime(Process::CLOCK_MONOTONIC) - started).to be < 1.2
+    ensure
+      worker&.kill&.join
+    end
+  end
+
+  it 'closes the TCP connection when the TLS handshake exceeds the deadline' do
+    stub_const('Irasutoya::Cli::HtmlPage::FETCH_TIMEOUT', 0.5)
+    allow(Net::HTTP).to receive(:start).and_wrap_original do |start, host, port, **options, &request|
+      start.call(host, port, nil, **options, &request)
+    end
+
+    TCPServer.open('127.0.0.1', 0) do |server|
+      url = "https://127.0.0.1:#{server.addr[1]}/cat.html"
+      worker = Thread.new do
+        socket = server.accept
+        socket.read
+      ensure
+        socket&.close
+      end
+
+      expect { Irasutoya::Cli::Illustration.fetch_page_and_parse(url) }
+        .to raise_error(described_class::Error, 'HTML fetch deadline exceeded')
+      expect(worker.join(2)).to eq(worker)
+      expect(worker.value).not_to be_empty
     ensure
       worker&.kill&.join
     end
@@ -124,6 +153,19 @@ RSpec.describe Irasutoya::Cli::HtmlPage do
           expect { run_search }
             .to output(satisfy { |stdout| result_urls(stdout) == urls }).to_stdout.and output('').to_stderr
         end
+      end
+    end
+
+    it 'discards a timed-out connection, warns, and fetches the next detail' do
+      stub_const('Irasutoya::Cli::HtmlPage::FETCH_TIMEOUT', 0.5)
+      serve_html(context, [%w[/search?q=cat /first /second], ['/third']], stalled: '/second') do |origin|
+        route_search_to(origin)
+        urls = ["#{origin}/first", "#{origin}/third"]
+
+        expect { run_search }
+          .to output(satisfy { |stdout| result_urls(stdout) == urls }).to_stdout
+          .and output("warn: Could not fetch result page #{origin}/second: HTML fetch deadline exceeded\n")
+          .to_stderr
       end
     end
 
@@ -197,7 +239,7 @@ RSpec.describe Irasutoya::Cli::HtmlPage do
     stdout.lines.map { |line| JSON.parse(line).fetch('page_url') }
   end
 
-  def serve_html(context, connections, other_origin: nil, oversized: nil)
+  def serve_html(context, connections, other_origin: nil, oversized: nil, stalled: nil)
     TCPServer.open('127.0.0.1', 0) do |server|
       origin = "https://127.0.0.1:#{server.addr[1]}"
       list = %w[first second third].map do |name|
@@ -208,7 +250,7 @@ RSpec.describe Irasutoya::Cli::HtmlPage do
       worker = Thread.new do
         connections.each do |paths|
           socket = tls_server.accept
-          paths.each { |path| respond_to_html(socket, path, list, oversized:) }
+          paths.each { |path| respond_to_html(socket, path, list, oversized:, stalled:) }
           expect(socket.gets).to be_nil
         ensure
           socket&.close
@@ -221,10 +263,11 @@ RSpec.describe Irasutoya::Cli::HtmlPage do
     end
   end
 
-  def respond_to_html(socket, path, list, oversized:)
+  def respond_to_html(socket, path, list, oversized:, stalled:)
     expect(socket.gets).to eq("GET #{path} HTTP/1.1\r\n")
     socket.to_enum(:each_line).take_while { |line| line != "\r\n" }
     return write_oversized_chunk(socket) if path == oversized
+    return socket.write("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n1\r\na") if path == stalled
 
     body = path == '/search?q=cat' ? list : detail
     socket.write("HTTP/1.1 200 OK\r\nContent-Length: #{body.bytesize}\r\n\r\n#{body}")
@@ -233,6 +276,20 @@ RSpec.describe Irasutoya::Cli::HtmlPage do
   def respond(path, response = Net::HTTPOK.new('1.1', '200', 'OK'))
     allow(http).to receive(:request_get).with(path, headers).and_yield(response)
     response
+  end
+
+  def with_tls_server
+    context = local_tls_context
+    store = OpenSSL::X509::Store.new
+    store.add_cert(context.cert)
+    allow(Net::HTTP).to receive(:start).and_wrap_original do |start, host, port, **options, &request|
+      start.call(host, port, nil, **options, cert_store: store, read_timeout: 1, &request)
+    end
+
+    TCPServer.open('127.0.0.1', 0) do |server|
+      tls_server = OpenSSL::SSL::SSLServer.new(server, context)
+      yield tls_server, "https://127.0.0.1:#{server.addr[1]}/cat.html"
+    end
   end
 
   def local_tls_context
@@ -258,6 +315,27 @@ RSpec.describe Irasutoya::Cli::HtmlPage do
     socket.each_line { |line| break if line == "\r\n" }
     write_oversized_chunk(socket)
     socket.read
+  ensure
+    socket&.close
+  end
+
+  def serve_slow_redirect_and_body(server)
+    socket = server.accept
+    socket.each_line { |line| break if line == "\r\n" }
+    sleep 0.65
+    socket.write("HTTP/1.1 302 Found\r\nLocation: /next.html\r\nContent-Length: 0\r\n\r\n")
+    socket.close
+
+    socket = server.accept
+    socket.each_line { |line| break if line == "\r\n" }
+    socket.write("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n8\r\n")
+    8.times do
+      socket.write('a')
+      sleep 0.08
+    end
+    socket.write("\r\n0\r\n\r\n")
+  rescue IOError, SystemCallError, OpenSSL::SSL::SSLError
+    # The client can close the connection while the response is still being written.
   ensure
     socket&.close
   end
