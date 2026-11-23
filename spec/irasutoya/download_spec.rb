@@ -196,6 +196,28 @@ RSpec.describe 'irasutoya download' do
     expect(File.binread(File.join(directory, 'cat.png'))).to eq(image_data.first)
   end
 
+  context 'when the next image connection is refused' do
+    let(:image_urls) { super().first(1) + ['https://refused.example/other.png'] }
+
+    it 'reports the failed URL and only announces and keeps the completed image' do
+      allow(Net::HTTP).to receive(:start).with('refused.example', 443, any_args).and_raise(Errno::ECONNREFUSED)
+
+      expect_failed_download(Errno::ECONNREFUSED.new.message)
+    end
+  end
+
+  it 'reports the failed URL and discards the partial image when a read times out' do
+    response = stub_image(image_urls.last, image_data.last)
+    error = Net::ReadTimeout.new
+    allow(response).to receive(:read_body) do |&receive_chunk|
+      receive_chunk.call('partial')
+      raise error
+    end
+
+    expect_failed_download(error.message)
+    expect(http).to have_received(:finish).once
+  end
+
   it 'exits on the transfer deadline and keeps only the completed image' do
     transfer = Irasutoya::Cli::ImageTransfer
     expect(Timeout).to receive(:timeout)
@@ -530,6 +552,17 @@ RSpec.describe 'irasutoya download' do
         end.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
       end.to output("Provide an output directory with --output.\n").to_stderr
     end
+  end
+
+  def expect_failed_download(message)
+    path = File.join(directory, 'cat.png')
+
+    expect do
+      expect { run_download }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+    end.to output("Could not fetch image #{image_urls.last}: #{message}\n").to_stderr
+      .and output("Saved: #{path}\n").to_stdout
+    expect(Dir.children(directory)).to eq(['cat.png'])
+    expect(File.binread(path)).to eq(image_data.first)
   end
 
   def run_download(url = page_url)
