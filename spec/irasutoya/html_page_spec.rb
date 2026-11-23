@@ -181,14 +181,53 @@ RSpec.describe Irasutoya::Cli::HtmlPage do
           .to_stderr
       end
     end
+
+    it 'warns once for a truncated detail body and fetches the next detail on a new connection' do
+      serve_html(context, [%w[/search?q=cat /first /second], ['/third']], truncated: '/second') do |origin|
+        route_search_to(origin)
+        urls = ["#{origin}/first", "#{origin}/third"]
+        failed_url = "#{origin}/second"
+        warning = "warn: Could not fetch result page #{failed_url}: Incomplete HTML response from #{failed_url}\n"
+
+        expect { run_search }
+          .to output(satisfy { |stdout| result_urls(stdout) == urls }).to_stdout.and output(warning).to_stderr
+      end
+    end
   end
 
   it 'preserves an unrelated body read error' do
-    allow(respond('/cat.html')).to receive(:read_body).and_raise(EOFError, 'end of file reached')
+    allow(respond('/cat.html')).to receive(:read_body).and_raise(IOError, 'body read failed')
     expect(http).not_to receive(:finish)
 
     expect { Irasutoya::Cli::Illustration.fetch_page_and_parse(page_url) }
-      .to raise_error(EOFError, 'end of file reached')
+      .to raise_error(IOError, 'body read failed')
+  end
+
+  it 'includes the redirected URL when the connection closes before the response headers' do
+    redirect = respond('/cat.html', Net::HTTPFound.new('1.1', '302', 'Found'))
+    redirect['location'] = '/next.html'
+    allow(http).to receive(:request_get).with('/next.html', headers).and_raise(EOFError)
+
+    expect { Irasutoya::Cli::Illustration.fetch_page_and_parse(page_url) }
+      .to raise_error(described_class::Error, "Incomplete HTML response from https://#{host}/next.html")
+  end
+
+  %w[search random download].each do |command|
+    it "reports a read timeout from #{command} as a CLI error" do
+      args, path = case command
+                   when 'search' then [%w[search cat], '/search?q=cat']
+                   when 'random' then [%w[random], '/cat.html']
+                   when 'download' then [['download', page_url, '--output', 'unused'], '/cat.html']
+                   end
+      allow(Irasutoya::Cli::Illustration).to receive(:random_url).and_return(page_url) if command == 'random'
+      allow(respond(path)).to receive(:read_body).and_raise(Net::ReadTimeout)
+
+      message = "HTML request timed out for https://#{host}#{path}"
+      message = "Could not fetch illustration page #{page_url}: #{message}" if command == 'download'
+      expect do
+        expect { Irasutoya::Cli::Runner.start(args) }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      end.to output("#{message}\n").to_stderr.and output('').to_stdout
+    end
   end
 
   it 'does not read an error response body' do
@@ -251,7 +290,7 @@ RSpec.describe Irasutoya::Cli::HtmlPage do
     stdout.lines.map { |line| JSON.parse(line).fetch('page_url') }
   end
 
-  def serve_html(context, connections, other_origin: nil, oversized: nil, stalled: nil)
+  def serve_html(context, connections, other_origin: nil, oversized: nil, stalled: nil, truncated: nil)
     TCPServer.open('127.0.0.1', 0) do |server|
       origin = "https://#{host}:#{server.addr[1]}"
       list = %w[first second third].map do |name|
@@ -262,8 +301,8 @@ RSpec.describe Irasutoya::Cli::HtmlPage do
       worker = Thread.new do
         connections.each do |paths|
           socket = tls_server.accept
-          paths.each { |path| respond_to_html(socket, path, list, oversized:, stalled:) }
-          expect(socket.gets).to be_nil
+          paths.each { |path| respond_to_html(socket, path, list, oversized:, stalled:, truncated:) }
+          expect(socket.gets).to be_nil unless paths.last == truncated
         ensure
           socket&.close
         end
@@ -275,14 +314,16 @@ RSpec.describe Irasutoya::Cli::HtmlPage do
     end
   end
 
-  def respond_to_html(socket, path, list, oversized:, stalled:)
+  def respond_to_html(socket, path, list, oversized:, stalled:, truncated:)
     expect(socket.gets).to eq("GET #{path} HTTP/1.1\r\n")
     socket.to_enum(:each_line).take_while { |line| line != "\r\n" }
     return write_oversized_chunk(socket) if path == oversized
     return socket.write("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n1\r\na") if path == stalled
 
     body = path == '/search?q=cat' ? list : detail
-    socket.write("HTTP/1.1 200 OK\r\nContent-Length: #{body.bytesize}\r\n\r\n#{body}")
+    length = body.bytesize
+    body = body.byteslice(0, 10) if path == truncated
+    socket.write("HTTP/1.1 200 OK\r\nContent-Length: #{length}\r\n\r\n#{body}")
   end
 
   def respond(path, response = Net::HTTPOK.new('1.1', '200', 'OK'))
