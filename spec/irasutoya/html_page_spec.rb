@@ -183,10 +183,10 @@ RSpec.describe Irasutoya::Cli::HtmlPage do
     end
 
     it 'warns once for a truncated detail body and fetches the next detail on a new connection' do
-      serve_html(context, [%w[/search?q=cat /first /second], ['/third']], truncated: '/second') do |origin|
+      serve_html(context, [%w[/search?q=cat /first.html /second.html], ['/third.html']], truncated: '/second.html') do |origin|
         route_search_to(origin)
-        urls = ["#{origin}/first", "#{origin}/third"]
-        failed_url = "#{origin}/second"
+        urls = ["#{origin}/first.html", "#{origin}/third.html"]
+        failed_url = "#{origin}/second.html"
         warning = "warn: Could not fetch result page #{failed_url}: Incomplete HTML response from #{failed_url}\n"
 
         expect { run_search }
