@@ -105,6 +105,24 @@ RSpec.describe Irasutoya::Cli::Runner do
     end
   end
 
+  it 'warns once when the first preview connection is refused and continues previewing search results' do
+    refused_url = 'https://refused.example/first.png'
+    allow(Net::HTTP).to receive(:start).with('refused.example', 443, any_args).and_raise(Errno::ECONNREFUSED)
+
+    serve_previews([['/next.png', '200 OK', {}, 'next']]) do |origin|
+      results = [illustration(refused_url), illustration("#{origin}/next.png")]
+      links = results.map { |result| instance_double(Irasutoya::IrasutoLink, show_url: result.url, fetch_irasuto: result) }
+      allow(Irasutoya::Cli::Illustration).to receive(:search).with(query: 'query').and_return(links)
+
+      runner.search('query')
+
+      expect(runner).to have_received(:say).with(start_with("warn: Could not preview #{refused_url}:"), :yellow).once
+      expect(runner).to have_received(:say).with(start_with('warn:'), :yellow).once
+      expect(runner).to have_received(:say).with("Page URL:    #{results.last.url}")
+      expect(rendered).to eq(['next'])
+    end
+  end
+
   it 'warns once when a connection closes before headers and continues previewing search results' do
     serve_previews(
       [['/closed.png']],
@@ -170,7 +188,7 @@ RSpec.describe Irasutoya::Cli::Runner do
   end
 
   it 'closes the least recently used session before opening another origin' do
-    stub_const('Irasutoya::Cli::ImageTransfer::SessionCache::MAX_SESSIONS', 2)
+    stub_const('Irasutoya::Cli::SessionCache::MAX_SESSIONS', 2)
     sessions = []
     store = OpenSSL::X509::Store.new
     store.add_cert(certificate)
