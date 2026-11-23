@@ -1,10 +1,13 @@
 # frozen_string_literal: true
 
 require 'zlib'
+require 'irasutoya/cli/preview_png_palette'
 
 module Irasutoya
   module Cli
     class PreviewPNG < ChunkyPNG::Datastream
+      include PreviewPNGPalette
+
       MAX_PIXEL_BYTES = 32 * 1024 * 1024
       MAX_METADATA_BYTES = 1024 * 1024
       CHUNK = ChunkyPNG::Chunk
@@ -67,8 +70,8 @@ module Irasutoya
       def store_chunk(type, content)
         case type
         when 'IDAT' then data_chunks << content
-        when 'PLTE' then self.palette_chunk = CHUNK::Palette.new(type, content)
-        when 'tRNS' then self.transparency_chunk = CHUNK::Transparency.new(type, content)
+        when 'PLTE' then store_palette(type, content)
+        when 'tRNS' then store_transparency(type, content)
         when 'IHDR' then invalid_png
         when 'zTXt', 'iTXt', 'iCCP' then check_metadata(type, content)
         end
