@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 require 'fileutils'
-require 'irasutoya'
+require 'irasutoya/cli/detail_page_parser'
 require 'irasutoya/cli/html_page'
 require 'irasutoya/cli/terminal_output'
 require 'irasutoya/cli/image_transfer'

@@ -28,7 +28,7 @@ RSpec.describe 'irasutoya download' do
 
   before do
     images = image_urls.map { |url| %(<img src="#{url}">) }.join
-    page = Nokogiri::HTML("<div class='entry'>#{images}</div>")
+    page = Nokogiri::HTML("<div class='entry'><img alt='placeholder'>#{images}</div>")
     allow(Irasutoya::IrasutoLink).to receive(:new).with(title: nil, show_url: page_url).and_return(link)
     allow(link).to receive(:fetch_page_and_parse).with(page_url).and_return(page)
     allow(Net::HTTP).to receive(:start).with('example.com', 443, use_ssl: true, max_retries: 0,
@@ -41,7 +41,7 @@ RSpec.describe 'irasutoya download' do
     end
   end
 
-  it 'saves the images from the illustration HTML in order without rendering previews' do
+  it 'skips images without sources and saves the remaining images in order without rendering previews' do
     allow(Irasutoya::IrasutoLink).to receive(:new).with(title: nil, show_url: page_url).and_call_original
     page_http = instance_double(Net::HTTP)
     expect(Net::HTTP).to receive(:start).with('www.irasutoya.com', 443, use_ssl: true, max_retries: 0,
@@ -51,6 +51,7 @@ RSpec.describe 'irasutoya download' do
     allow(response).to receive(:read_body).and_yield(<<~HTML)
       <img src="https://example.com/banner.png">
       <div class="entry">
+        <img alt="placeholder">
         <img src="//example.com/cat.png">
         <img src="https://example.com/other/cat.png?size=large">
       </div>
@@ -493,7 +494,7 @@ RSpec.describe 'irasutoya download' do
     end
   end
 
-  context 'when the illustration page contains no images' do
+  context 'when no images on the illustration page have a source' do
     let(:image_urls) { [] }
 
     it 'reports the page URL and exits with status 1 before creating the destination' do
