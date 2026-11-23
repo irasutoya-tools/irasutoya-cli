@@ -4,7 +4,7 @@ require 'stringio'
 
 RSpec.describe Irasutoya::Cli::ImageTransfer do
   let(:headers) { { 'Accept-Encoding' => 'identity' } }
-  let(:http) { instance_double(Net::HTTP, finish: nil) }
+  let(:http) { instance_double(Net::HTTP, started?: true, finish: nil) }
   let(:url) { URI('https://example.com/images/start.png') }
 
   before do

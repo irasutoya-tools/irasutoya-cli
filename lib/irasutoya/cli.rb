@@ -31,13 +31,7 @@ module Irasutoya
       method_option :jsonl, **JSONL_OPTION
       def search(query)
         require 'irasutoya/cli/illustration'
-        with_preview_sessions do
-          Illustration.search(query:)
-                      .take(3)
-                      .lazy
-                      .filter_map(&method(:fetch_result))
-                      .each(&method(:display))
-        end
+        HtmlPage.with_sessions { with_preview_sessions { display_search_results(query) } }
       rescue HtmlPage::Error => e
         raise Thor::Error, e.message
       end
@@ -56,6 +50,14 @@ module Irasutoya
       end
 
       private
+
+      def display_search_results(query)
+        Illustration.search(query:)
+                    .take(3)
+                    .lazy
+                    .filter_map(&method(:fetch_result))
+                    .each(&method(:display))
+      end
 
       def fetch_result(link)
         url = HttpsUrl.parse(link.show_url).to_s
