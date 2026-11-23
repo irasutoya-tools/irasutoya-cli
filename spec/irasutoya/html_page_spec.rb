@@ -90,12 +90,50 @@ RSpec.describe Irasutoya::Cli::HtmlPage do
     end
   end
 
-  it 'preserves an unrelated body read error' do
-    allow(respond('/cat.html')).to receive(:read_body).and_raise(EOFError, 'end of file reached')
+  it 'warns once for a truncated detail body and displays the surrounding results in order' do
+    paths = %w[/cat.html /cut.html /next.html]
+    list = paths.map { |path| search_html.sub('/cat.html', path) }.join
+    allow(respond('/search?q=cat')).to receive(:read_body).and_yield(list)
+    allow(respond('/cat.html')).to receive(:read_body).and_yield(detail)
+    allow(respond('/cut.html')).to receive(:read_body) do |&receive_chunk|
+      receive_chunk.call(detail[0, 10])
+      raise EOFError
+    end
+    allow(respond('/next.html')).to receive(:read_body).and_yield(detail)
     expect(http).not_to receive(:finish)
 
+    failed_url = "https://#{host}/cut.html"
+    warning = "warn: Could not fetch result page #{failed_url}: Incomplete HTML response from #{failed_url}\n"
+    expect { Irasutoya::Cli::Runner.start(%w[search cat]) }
+      .to output(%r{Page URL:    #{Regexp.escape(page_url)}\n.*Page URL:    https://#{Regexp.escape(host)}/next\.html\n}m)
+      .to_stdout.and output(warning).to_stderr
+  end
+
+  it 'includes the redirected URL when the connection closes before the response headers' do
+    redirect = respond('/cat.html', Net::HTTPFound.new('1.1', '302', 'Found'))
+    redirect['location'] = '/next.html'
+    allow(http).to receive(:request_get).with('/next.html', headers).and_raise(EOFError)
+
     expect { Irasutoya::Cli::Illustration.fetch_page_and_parse(page_url) }
-      .to raise_error(EOFError, 'end of file reached')
+      .to raise_error(described_class::Error, "Incomplete HTML response from https://#{host}/next.html")
+  end
+
+  %w[search random download].each do |command|
+    it "reports a read timeout from #{command} as a CLI error" do
+      args, path = case command
+                   when 'search' then [%w[search cat], '/search?q=cat']
+                   when 'random' then [%w[random], '/cat.html']
+                   when 'download' then [['download', page_url, '--output', 'unused'], '/cat.html']
+                   end
+      allow(Irasutoya::Cli::Illustration).to receive(:random_url).and_return(page_url) if command == 'random'
+      allow(respond(path)).to receive(:read_body).and_raise(Net::ReadTimeout)
+
+      message = "HTML request timed out for https://#{host}#{path}"
+      message = "Could not fetch illustration page #{page_url}: #{message}" if command == 'download'
+      expect do
+        expect { Irasutoya::Cli::Runner.start(args) }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      end.to output("#{message}\n").to_stderr.and output('').to_stdout
+    end
   end
 
   it 'does not read an error response body' do

@@ -2,6 +2,7 @@
 
 require 'net/http'
 require 'open-uri'
+require 'timeout'
 require 'irasutoya/cli/https_url'
 
 module Irasutoya
@@ -21,6 +22,10 @@ module Irasutoya
 
           uri = html_redirect(uri, location)
         end
+      rescue EOFError
+        raise Error, "Incomplete HTML response from #{uri}"
+      rescue Timeout::Error
+        raise Error, "HTML request timed out for #{uri}"
       end
 
       private
