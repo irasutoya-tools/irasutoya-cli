@@ -198,20 +198,44 @@ RSpec.describe 'irasutoya download' do
   end
 
   context 'with 100 images sharing a basename' do
-    let(:image_urls) { Array.new(100) { |index| "https://example.com/#{index}/cat.png" } }
+    let(:stem) { 'a' * 4096 }
+    let(:image_urls) { Array.new(100) { |index| "https://example.com/#{index}/#{stem}.png" } }
     let(:image_data) do
       Array.new(100) { |index| ChunkyPNG::Image.new(1, 1, ChunkyPNG::Color.rgb(index, 0, 0)).to_blob }
     end
 
-    it 'saves each image under a sequential name with one link attempt per image' do
+    it 'fits oversized names and saves each image with one link attempt per image' do
       expect(File).to receive(:link).exactly(100).times.and_call_original
-      names = ['cat.png', *(1...100).map { |index| "cat-#{index}.png" }]
+      names = Array.new(100) do |index|
+        ending = index.zero? ? '.png' : "-#{index}.png"
+        "#{stem[0, 255 - ending.bytesize]}#{ending}"
+      end
       paths = names.map { |name| File.join(directory, name) }
 
       expect { run_download }.to output(paths.map { |path| "Saved: #{path}\n" }.join).to_stdout
       expect(paths.map { |path| File.binread(path) }).to eq(image_data)
       expect(Dir.children(directory)).to match_array(names)
     end
+  end
+
+  it 'fits complete multibyte characters to the destination limit across a suffix digit boundary' do
+    FileUtils.mkdir_p(directory)
+    source = File.join(@workspace, 'image')
+    File.binwrite(source, 'download')
+    destination = instance_double(File, pathconf: 33)
+    allow(File).to receive(:open).and_call_original
+    allow(File).to receive(:open).with(directory).and_yield(destination)
+    occupied_names = ["#{'猫' * 9}.png", *(1..8).map { |index| "#{'猫' * 9}-#{index}.png" }]
+    occupied_names.each { |name| File.binwrite(File.join(directory, name), 'original') }
+    download = Irasutoya::Cli::Download.new(page_url, directory)
+    next_suffixes = Hash.new(0)
+    expect(File).to receive(:link).exactly(11).times.and_call_original
+
+    paths = Array.new(2) { download.send(:link_image, source, "#{'猫' * 100}.png", next_suffixes) }
+
+    expect(paths.map { |path| File.basename(path) }).to eq(["#{'猫' * 9}-9.png", "#{'猫' * 8}-10.png"])
+    expect(paths.map { |path| File.binread(path) }).to all(eq('download'))
+    expect(occupied_names.map { |name| File.binread(File.join(directory, name)) }).to all(eq('original'))
   end
 
   it 'retries when another writer claims the next suffix before the link' do
@@ -325,6 +349,31 @@ RSpec.describe 'irasutoya download' do
       .and output("Saved: #{path}\n").to_stdout
     expect(Dir.children(directory)).to eq(['cat.png'])
     expect(File.binread(path)).to eq(image_data.first)
+  end
+
+  it 'reports an oversized Content-Length before reading the body and removes its temporary file' do
+    limit = image_data.first.bytesize
+    stub_const('Irasutoya::Cli::ImageTransfer::MAX_IMAGE_BYTES', limit)
+    response = stub_image(image_urls.last, image_data.last)
+    response['Content-Length'] = (limit + 1).to_s
+    expect(response).not_to receive(:read_body)
+
+    expect do
+      expect { run_download }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+    end.to output("Image download exceeds the #{limit}-byte limit\n").to_stderr
+    expect(Dir.children(directory)).to eq(['cat.png'])
+    expect(File.binread(File.join(directory, 'cat.png'))).to eq(image_data.first)
+  end
+
+  it 'ignores an oversized Content-Length when Transfer-Encoding is present' do
+    limit = image_data.map(&:bytesize).max
+    stub_const('Irasutoya::Cli::ImageTransfer::MAX_IMAGE_BYTES', limit)
+    response = stub_image(image_urls.last, image_data.last)
+    response['transfer-encoding'] = 'chunked'
+    response['content-length'] = (limit + 1).to_s
+
+    expect { run_download }.to output(/cat\.png\n.*cat-1\.png\n/m).to_stdout
+    expect(File.binread(File.join(directory, 'cat-1.png'))).to eq(image_data.last)
   end
 
   it 'stops reading an oversized response without Content-Length and removes its temporary file' do
@@ -590,6 +639,16 @@ RSpec.describe 'irasutoya download' do
       expect([first_path, second_path].map { |path| File.binread(path) }).to eq(image_data)
       expect(Dir.children(directory)).to match_array([File.basename(first_path), File.basename(second_path)])
     end
+
+    it 'fits the name to 255 bytes when the directory limit cannot be queried' do
+      allow(File).to receive(:open).and_call_original
+      allow(File).to receive(:open).with(directory).and_raise(Errno::EACCES)
+      expect(File).to receive(:link).once.and_call_original
+      path = File.join(directory, "#{'a' * 251}.png")
+
+      expect { run_download }.to output("Saved: #{path}\n").to_stdout
+      expect(File.binread(path)).to eq(image_data.first)
+    end
   end
 
   context 'when the filename reaches the 255-byte component limit' do
@@ -614,6 +673,40 @@ RSpec.describe 'irasutoya download' do
       expect { run_download }.to output(paths.map { |path| "Saved: #{path}\n" }.join).to_stdout
       expect(paths.map { |path| File.binread(path) }).to eq(image_data)
       expect(occupied_paths.map { |path| File.binread(path) }).to all(eq('original'))
+    end
+  end
+
+  context 'when the full destination path exceeds the system limit' do
+    let(:filename) { "#{'a' * 200}.png" }
+    let(:image_urls) { ["https://example.com/#{filename}", "https://example.com/other/#{filename}"] }
+    let(:directory) do
+      workspace = File.realpath(@workspace)
+      path_limit = File.open(workspace) { |dir| dir.pathconf(Etc::PC_PATH_MAX) }
+      levels, tail = (path_limit - workspace.bytesize - 104).divmod(101)
+      File.join(workspace, *Array.new(levels, 'd' * 100), 'd' * (tail + 1))
+    end
+
+    it 'shortens both names, retaining the extension and collision suffix' do
+      paths = ["#{'a' * 96}.png", "#{'a' * 94}-1.png"].map { |name| File.join(directory, name) }
+
+      expect { run_download }.to output(paths.map { |path| "Saved: #{path}\n" }.join).to_stdout
+      expect(paths.map { |path| File.binread(path) }).to eq(image_data)
+      expect(Dir.children(directory)).to match_array(paths.map { |path| File.basename(path) })
+    end
+  end
+
+  context 'when no stem can fit the destination path' do
+    let(:image_urls) { ['https://example.com/a.png'] }
+
+    it 'reports the link error and removes the temporary file' do
+      allow(File).to receive(:link).and_raise(Errno::ENAMETOOLONG)
+      path = File.join(directory, '.png')
+
+      expect do
+        expect { run_download }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      end.to output("Could not save image at #{path}: #{Errno::ENAMETOOLONG.new.message}\n").to_stderr
+        .and output('').to_stdout
+      expect(Dir.children(directory)).to be_empty
     end
   end
 
@@ -653,6 +746,77 @@ RSpec.describe 'irasutoya download' do
         end.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
       end.to output("Provide an output directory with --output.\n").to_stderr
     end
+  end
+
+  context 'with a URL list' do
+    let(:input_path) { File.join(@workspace, 'pages.txt') }
+    let(:second_url) { 'https://www.irasutoya.com/2026/01/dog.html' }
+
+    it 'processes file entries in order and avoids filename collisions across pages' do
+      second_link = double(fetch_irasuto: double(image_urls: [image_urls.last]))
+      allow(Irasutoya::IrasutoLink).to receive(:new).with(title: nil, show_url: second_url).and_return(second_link)
+      File.write(input_path, "  #{second_url}\r\n\r\n#{page_url}\n")
+      paths = %w[cat.png cat-1.png cat-2.png].map { |name| File.join(directory, name) }
+
+      expect { run_list('--input', input_path) }.to output(paths.map { |path| "Saved: #{path}\n" }.join).to_stdout
+      expect(paths.map { |path| File.binread(path) }).to eq([image_data.last, *image_data])
+    end
+
+    it 'reads stdin, continues after a partial download, and processes repeated URLs' do
+      original_stdin = $stdin
+      $stdin = StringIO.new("#{page_url}\n#{second_url}\n#{page_url}")
+      failing_image = 'https://example.com/unavailable.png'
+      second_link = double(fetch_irasuto: double(image_urls: [image_urls.first, failing_image]))
+      allow(Irasutoya::IrasutoLink).to receive(:new).with(title: nil, show_url: second_url).and_return(second_link)
+      allow(http).to receive(:request_get).with('/unavailable.png', request_headers).and_raise(Net::ReadTimeout)
+      paths = %w[cat.png cat-1.png cat-2.png cat-3.png cat-4.png].map { |name| File.join(directory, name) }
+
+      expect do
+        expect { run_list('--input', '-') }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      end.to output(/Line 2: Could not download page: .*\nFailed to download 1 page\(s\)\.\n/).to_stderr
+        .and output(paths.map { |path| "Saved: #{path}\n" }.join).to_stdout
+      expect(Dir.children(directory).sort).to eq(paths.map { |path| File.basename(path) }.sort)
+      expect(paths.map { |path| File.binread(path) }).to eq([*image_data, image_data.first, *image_data])
+    ensure
+      $stdin = original_stdin
+    end
+
+    [Net::HTTPBadResponse, Net::HTTPHeaderSyntaxError].each do |error_class|
+      it "reports #{error_class} with the line number and downloads the next page" do
+        allow(Irasutoya::IrasutoLink).to receive(:new).with(title: nil, show_url: second_url).and_call_original
+        page_http = instance_double(Net::HTTP)
+        allow(Net::HTTP).to receive(:start).with('www.irasutoya.com', 443, use_ssl: true, max_retries: 0,
+                                                ignore_eof: false).and_yield(page_http)
+        allow(page_http).to receive(:request_get).with(URI(second_url).request_uri, request_headers)
+                                                 .and_raise(error_class, 'Malformed HTTP response')
+        File.write(input_path, "\n#{second_url}\n#{page_url}\n")
+        paths = %w[cat.png cat-1.png].map { |name| File.join(directory, name) }
+
+        expect do
+          expect { run_list('--input', input_path) }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+        end.to output("Line 2: Could not download page: Malformed HTTP response\nFailed to download 1 page(s).\n").to_stderr
+          .and output(paths.map { |path| "Saved: #{path}\n" }.join).to_stdout
+        expect(paths.map { |path| File.binread(path) }).to eq(image_data)
+      end
+    end
+
+    it 'reports an unreadable list' do
+      expect do
+        expect { run_list('--input', input_path) }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      end.to output(/Could not read URL list/).to_stderr
+    end
+
+    it 'requires exactly one input source' do
+      [[], [page_url, '--input', input_path]].each do |args|
+        expect do
+          expect { run_list(*args) }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+        end.to output("Provide either PAGE_URL or --input FILE.\n").to_stderr
+      end
+    end
+  end
+
+  def run_list(*args)
+    Irasutoya::Cli::Runner.start(['download', *args, '--output', directory])
   end
 
   def expect_failed_download(message)

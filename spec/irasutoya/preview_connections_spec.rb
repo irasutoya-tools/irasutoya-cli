@@ -85,6 +85,26 @@ RSpec.describe Irasutoya::Cli::Runner do
     end
   end
 
+  it 'warns once on the sixth redirect and previews the next image and search result' do
+    redirects = (0...6).map do |index|
+      ["/redirect-#{index}.png", '302 Found', { 'Location' => "/redirect-#{index + 1}.png" }, '']
+    end
+    serve_previews([*redirects, ['/next.png', '200 OK', {}, 'next'], ['/later.png', '200 OK', {}, 'later']]) do |origin|
+      failed_url = "#{origin}/redirect-0.png"
+      later_url = "#{origin}/later.png"
+      results = [illustration(failed_url, "#{origin}/next.png"), illustration(later_url)]
+      links = results.map { |result| instance_double(Irasutoya::IrasutoLink, show_url: result.url, fetch_irasuto: result) }
+      allow(Irasutoya::Cli::Illustration).to receive(:search).with(query: 'query').and_return(links)
+
+      runner.search('query')
+
+      expect(runner).to have_received(:say).with("warn: Could not preview #{failed_url}: Too many image redirects", :yellow)
+      expect(runner).to have_received(:say).with(start_with('warn:'), :yellow).once
+      expect(runner).to have_received(:say).with("Page URL:    #{later_url}")
+      expect(rendered).to eq(%w[next later])
+    end
+  end
+
   it 'warns once when the first preview connection is refused and continues previewing search results' do
     refused_url = 'https://refused.example/first.png'
     allow(Net::HTTP).to receive(:start).with('refused.example', 443, any_args).and_raise(Errno::ECONNREFUSED)
@@ -136,6 +156,22 @@ RSpec.describe Irasutoya::Cli::Runner do
       expect(runner).to have_received(:say).with(start_with('warn:'), :yellow).once
       expect(runner).to have_received(:say)
         .with("warn: Could not preview #{slow_url}: Image transfer deadline exceeded", :yellow)
+      expect(rendered).to eq(['next'])
+    end
+  end
+
+  it 'rejects oversized headers while the server withholds the body and previews the next image' do
+    stub_const('Irasutoya::Cli::ImageTransfer::MAX_IMAGE_BYTES', 4)
+    serve_previews(
+      [['/oversized.png', '200 OK', { 'Content-Length' => '5' }]],
+      [['/next.png', '200 OK', {}, 'next']]
+    ) do |origin|
+      allow(Irasutoya::Cli::Illustration).to receive(:random)
+        .and_return(illustration("#{origin}/oversized.png", "#{origin}/next.png"))
+
+      Timeout.timeout(5) { runner.random }
+
+      expect(runner).to have_received(:say).with("warn: Image preview exceeds the 4-byte limit", :yellow).once
       expect(rendered).to eq(['next'])
     end
   end
@@ -253,8 +289,8 @@ RSpec.describe Irasutoya::Cli::Runner do
     socket.to_enum(:each_line).take_while { |line| line != "\r\n" }
     return unless status
 
-    socket.write("HTTP/1.1 #{status}\r\nContent-Length: #{body.bytesize}\r\n")
-    headers.each { |name, value| socket.write("#{name}: #{value}\r\n") }
+    socket.write("HTTP/1.1 #{status}\r\n")
+    { 'Content-Length' => body.bytesize }.merge(headers).each { |name, value| socket.write("#{name}: #{value}\r\n") }
     socket.write("\r\n")
     return socket.write(body) unless delay
 
