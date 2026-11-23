@@ -217,6 +217,17 @@ RSpec.describe Irasutoya::Cli::HtmlPage do
       .to raise_error(described_class::Error, 'Too many HTML redirects')
   end
 
+  { missing: nil, empty: '', blank: ' ' }.each do |kind, location|
+    it "rejects a #{kind} Location header without making a second request" do
+      redirect = Net::HTTPFound.new('1.1', '302', 'Found')
+      redirect['location'] = location if location
+      expect(http).to receive(:request_get).with('/cat.html', headers).once.and_yield(redirect)
+
+      expect { Irasutoya::Cli::Illustration.fetch_page_and_parse(page_url) }
+        .to raise_error(described_class::Error, 'Invalid HTTPS redirect for HTML page')
+    end
+  end
+
   it 'rejects malformed redirect destinations' do
     redirect = respond('/cat.html', Net::HTTPFound.new('1.1', '302', 'Found'))
     redirect['location'] = 'http://['
