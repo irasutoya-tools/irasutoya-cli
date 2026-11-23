@@ -150,7 +150,7 @@ RSpec.describe Irasutoya::Cli::Runner do
   end
 
   it 'closes the least recently used session before opening another origin' do
-    stub_const('Irasutoya::Cli::ImageTransfer::SessionCache::MAX_SESSIONS', 2)
+    stub_const('Irasutoya::Cli::SessionCache::MAX_SESSIONS', 2)
     sessions = []
     store = OpenSSL::X509::Store.new
     store.add_cert(certificate)

@@ -44,9 +44,9 @@ RSpec.describe 'JSON Lines output' do
   it 'parses search and detail HTML, skipping a result with an unsupported URL scheme' do
     invalid_url = 'ftp://example.com/missing.html'
     page_url = result.fetch('page_url')
-    http = instance_double(Net::HTTP)
+    http = instance_double(Net::HTTP, finish: nil)
     expect(Net::HTTP).to receive(:start).with('www.irasutoya.com', 443, use_ssl: true, max_retries: 0,
-                                             ignore_eof: false).twice.and_yield(http)
+                                             ignore_eof: false).once.and_return(http)
     stub_html(http, '/search?q=%E7%8C%AB+%26+%E7%8A%AC', <<~HTML)
       <div class="box"><a href="#{invalid_url}"></a><a>Invalid result</a></div>
       <div class="box"><a href="#{page_url.sub('https:', 'http:')}"></a><a>Search title</a></div>
