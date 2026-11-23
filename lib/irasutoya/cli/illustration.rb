@@ -3,6 +3,7 @@
 require 'json'
 require 'irasutoya/cli/detail_page_parser'
 require 'irasutoya/cli/html_page'
+require 'irasutoya/cli/page_url'
 
 module Irasutoya
   module Cli
@@ -13,6 +14,11 @@ module Irasutoya
       MAX_FEED_BYTES = 64 * 1024
 
       class FeedError < StandardError; end
+
+      def self.random
+        url = PageUrl.parse(random_url).to_s
+        Irasutoya::IrasutoLink.new(title: nil, show_url: url).extend(HtmlPage).fetch_irasuto
+      end
 
       class << self
         private

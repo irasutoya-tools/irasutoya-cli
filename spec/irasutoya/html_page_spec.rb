@@ -127,16 +127,17 @@ RSpec.describe Irasutoya::Cli::HtmlPage do
     let(:context) { local_tls_context }
 
     before do
+      stub_const('Irasutoya::Cli::HtmlPage::MAX_BYTES', 320)
       store = OpenSSL::X509::Store.new
       store.add_cert(context.cert)
       allow(Net::HTTP).to receive(:start).and_wrap_original do |start, host, port, **options|
-        start.call(host, port, nil, **options, cert_store: store, read_timeout: 2)
+        start.call(host, port, nil, **options, ipaddr: '127.0.0.1', cert_store: store, read_timeout: 2)
       end
     end
 
     it 'fetches the search page and all three details on one connection and emits results in order' do
-      serve_html(context, [%w[/search?q=cat /first /second /third]]) do |origin|
-        urls = %w[first second third].map { |name| "#{origin}/#{name}" }
+      serve_html(context, [%w[/search?q=cat /first.html /second.html /third.html]]) do |origin|
+        urls = %w[first second third].map { |name| "#{origin}/#{name}.html" }
         route_search_to(origin)
 
         expect { run_search }
@@ -145,10 +146,10 @@ RSpec.describe Irasutoya::Cli::HtmlPage do
     end
 
     it 'uses a separate connection for a different origin and returns to the original connection' do
-      serve_html(context, [['/second']]) do |other_origin|
-        serve_html(context, [%w[/search?q=cat /first /third]], other_origin:) do |origin|
+      serve_html(context, [['/second.html']]) do |other_origin|
+        serve_html(context, [%w[/search?q=cat /first.html /third.html]], other_origin:) do |origin|
           route_search_to(origin)
-          urls = ["#{origin}/first", "#{other_origin}/second", "#{origin}/third"]
+          urls = ["#{origin}/first.html", "#{other_origin}/second.html", "#{origin}/third.html"]
 
           expect { run_search }
             .to output(satisfy { |stdout| result_urls(stdout) == urls }).to_stdout.and output('').to_stderr
@@ -158,34 +159,34 @@ RSpec.describe Irasutoya::Cli::HtmlPage do
 
     it 'discards a timed-out connection, warns, and fetches the next detail' do
       stub_const('Irasutoya::Cli::HtmlPage::FETCH_TIMEOUT', 0.5)
-      serve_html(context, [%w[/search?q=cat /first /second], ['/third']], stalled: '/second') do |origin|
+      serve_html(context, [%w[/search?q=cat /first.html /second.html], ['/third.html']], stalled: '/second.html') do |origin|
         route_search_to(origin)
-        urls = ["#{origin}/first", "#{origin}/third"]
+        urls = ["#{origin}/first.html", "#{origin}/third.html"]
 
         expect { run_search }
           .to output(satisfy { |stdout| result_urls(stdout) == urls }).to_stdout
-          .and output("warn: Could not fetch result page #{origin}/second: HTML fetch deadline exceeded\n")
+          .and output("warn: Could not fetch result page #{origin}/second.html: HTML fetch deadline exceeded\n")
           .to_stderr
       end
     end
 
     it 'discards the connection after aborting an oversized chunked response and fetches the next detail' do
-      serve_html(context, [%w[/search?q=cat /first /second], ['/third']], oversized: '/second') do |origin|
+      serve_html(context, [%w[/search?q=cat /first.html /second.html], ['/third.html']], oversized: '/second.html') do |origin|
         route_search_to(origin)
-        urls = ["#{origin}/first", "#{origin}/third"]
+        urls = ["#{origin}/first.html", "#{origin}/third.html"]
 
         expect { run_search }
           .to output(satisfy { |stdout| result_urls(stdout) == urls }).to_stdout
-          .and output("warn: Could not fetch result page #{origin}/second: HTML response exceeds the 256-byte limit\n")
+          .and output("warn: Could not fetch result page #{origin}/second.html: HTML response exceeds the 320-byte limit\n")
           .to_stderr
       end
     end
 
     it 'warns once for a truncated detail body and fetches the next detail on a new connection' do
-      serve_html(context, [%w[/search?q=cat /first /second], ['/third']], truncated: '/second') do |origin|
+      serve_html(context, [%w[/search?q=cat /first.html /second.html], ['/third.html']], truncated: '/second.html') do |origin|
         route_search_to(origin)
-        urls = ["#{origin}/first", "#{origin}/third"]
-        failed_url = "#{origin}/second"
+        urls = ["#{origin}/first.html", "#{origin}/third.html"]
+        failed_url = "#{origin}/second.html"
         warning = "warn: Could not fetch result page #{failed_url}: Incomplete HTML response from #{failed_url}\n"
 
         expect { run_search }
@@ -291,10 +292,10 @@ RSpec.describe Irasutoya::Cli::HtmlPage do
 
   def serve_html(context, connections, other_origin: nil, oversized: nil, stalled: nil, truncated: nil)
     TCPServer.open('127.0.0.1', 0) do |server|
-      origin = "https://127.0.0.1:#{server.addr[1]}"
+      origin = "https://#{host}:#{server.addr[1]}"
       list = %w[first second third].map do |name|
-        host = name == 'second' && other_origin ? other_origin : origin
-        %(<div class="box"><a href="#{host}/#{name}"></a><a>Cat</a></div>)
+        detail_origin = name == 'second' && other_origin ? other_origin : origin
+        %(<div class="box"><a href="#{detail_origin}/#{name}.html"></a><a>Cat</a></div>)
       end.join
       tls_server = OpenSSL::SSL::SSLServer.new(server, context)
       worker = Thread.new do
@@ -353,7 +354,7 @@ RSpec.describe Irasutoya::Cli::HtmlPage do
     cert.public_key = key.public_key
     cert.not_before = Time.now - 60
     cert.not_after = Time.now + 60
-    cert.add_extension(OpenSSL::X509::ExtensionFactory.new.create_extension('subjectAltName', 'IP:127.0.0.1'))
+    cert.add_extension(OpenSSL::X509::ExtensionFactory.new.create_extension('subjectAltName', 'IP:127.0.0.1,DNS:www.irasutoya.com'))
     cert.sign(key, OpenSSL::Digest.new('SHA256'))
 
     OpenSSL::SSL::SSLContext.new.tap do |context|
@@ -393,7 +394,8 @@ RSpec.describe Irasutoya::Cli::HtmlPage do
   end
 
   def write_oversized_chunk(socket)
-    socket.write("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n101\r\n" + ('a' * 257))
+    bytes = described_class::MAX_BYTES + 1
+    socket.write("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n#{bytes.to_s(16)}\r\n" + ('a' * bytes))
   end
 
   def stream_oversized_detail

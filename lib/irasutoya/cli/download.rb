@@ -4,6 +4,7 @@ require 'etc'
 require 'fileutils'
 require 'irasutoya/cli/detail_page_parser'
 require 'irasutoya/cli/html_page'
+require 'irasutoya/cli/page_url'
 require 'irasutoya/cli/terminal_output'
 require 'irasutoya/cli/image_transfer'
 require 'tempfile'
@@ -159,10 +160,7 @@ module Irasutoya
       end
 
       def page_images
-        uri = HttpsUrl.parse(@page_url)
-        unless %w[irasutoya.com www.irasutoya.com].include?(uri.host.downcase) && uri.path.end_with?('.html')
-          raise Thor::Error, 'Provide an Irasutoya illustration page URL printed by search or random.'
-        end
+        uri = PageUrl.parse(@page_url)
 
         Irasutoya::IrasutoLink.new(title: nil, show_url: uri.to_s).extend(HtmlPage).fetch_irasuto.image_urls
       rescue URI::InvalidURIError
