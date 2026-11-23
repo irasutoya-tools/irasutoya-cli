@@ -16,6 +16,14 @@ module Irasutoya
       class SaveError < Error; end
 
       class TemporaryImage
+        IMAGE_SIGNATURES = {
+          '.png' => /\A\x89PNG\r\n\x1a\n\x00\x00\x00\x0dIHDR/n,
+          '.jpg' => /\A\xff\xd8\xff/n,
+          '.gif' => /\AGIF8[79]a/n,
+          '.webp' => /\ARIFF.{4}WEBPVP8[ LX]/mn
+        }.freeze
+        private_constant :IMAGE_SIGNATURES
+
         def initialize(directory)
           @file = Tempfile.create('.irasutoya-', directory, binmode: true)
         rescue SystemCallError => e
@@ -31,8 +39,15 @@ module Irasutoya
           with_io { @file.write(chunk) }
         end
 
-        def flush
-          with_io { @file.flush }
+        def image_filename(uri)
+          extension = image_extension
+          filename = File.basename(uri.path)
+          filename = 'image' if ['', '.', '..', '/'].include?(filename)
+          original_extension = File.extname(filename)
+          original_format = original_extension.downcase.sub(/\A\.jpeg\z/, '.jpg')
+          return filename if original_format == extension
+
+          filename.delete_suffix(original_extension) + extension
         end
 
         def remove
@@ -46,6 +61,16 @@ module Irasutoya
         end
 
         private
+
+        def image_extension
+          header = with_io do
+            @file.flush
+            @file.rewind
+            @file.read(16)
+          end
+          IMAGE_SIGNATURES.find { |_, signature| signature.match?(header) }&.first ||
+            raise(ImageTransfer::ResponseError, 'Unsupported image format')
+        end
 
         def unlink
           File.unlink(path)
@@ -149,7 +174,7 @@ module Irasutoya
         uri = HttpsUrl.parse(url)
         with_temporary_image do |file|
           copy_image(uri, file, transfer)
-          yield link_image(file.tap(&:flush).path, image_filename(uri), next_suffixes)
+          yield link_image(file.path, file.image_filename(uri), next_suffixes)
         end
       rescue URI::InvalidURIError => e
         raise Thor::Error, TerminalOutput.escape_controls("Could not download #{url}: #{e.message}")
@@ -183,11 +208,6 @@ module Irasutoya
         raise Thor::Error, 'Too many image download redirects'
       rescue ImageTransfer::InsecureRedirectError
         raise Thor::Error, 'Image download redirect must use HTTPS'
-      end
-
-      def image_filename(uri)
-        filename = File.basename(uri.path)
-        ['', '.', '..', '/'].include?(filename) ? 'image' : filename
       end
 
       def link_image(source, filename, next_suffixes)
