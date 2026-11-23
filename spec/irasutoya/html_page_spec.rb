@@ -95,6 +95,30 @@ RSpec.describe Irasutoya::Cli::HtmlPage do
     end
   end
 
+  it 'closes the TCP connection when the TLS handshake exceeds the deadline' do
+    stub_const('Irasutoya::Cli::HtmlPage::FETCH_TIMEOUT', 0.5)
+    allow(Net::HTTP).to receive(:start).and_wrap_original do |start, host, port, **options, &request|
+      start.call(host, port, nil, **options, &request)
+    end
+
+    TCPServer.open('127.0.0.1', 0) do |server|
+      url = "https://127.0.0.1:#{server.addr[1]}/cat.html"
+      worker = Thread.new do
+        socket = server.accept
+        socket.read
+      ensure
+        socket&.close
+      end
+
+      expect { Irasutoya::Cli::Illustration.fetch_page_and_parse(url) }
+        .to raise_error(described_class::Error, 'HTML fetch deadline exceeded')
+      expect(worker.join(2)).to eq(worker)
+      expect(worker.value).not_to be_empty
+    ensure
+      worker&.kill&.join
+    end
+  end
+
   it 'warns about a detail page that exceeds its deadline and displays the next result' do
     stub_const('Irasutoya::Cli::HtmlPage::FETCH_TIMEOUT', 0.5)
     list = search_html + search_html.sub('/cat.html', '/next.html')

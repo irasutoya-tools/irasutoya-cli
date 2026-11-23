@@ -49,9 +49,14 @@ module Irasutoya
 
         def cancel(worker)
           @lock.synchronize do
-            worker.kill
-            # Closing the socket unblocks Net::HTTP's chunk terminator read during unwinding.
-            close_connection
+            if @http
+              worker.kill
+              # Closing the socket unblocks Net::HTTP's chunk terminator read during unwinding.
+              close_connection
+            else
+              # Net::HTTP closes the socket in its connection error handler.
+              worker.raise(Error, 'HTML fetch cancelled')
+            end
           end
           worker.join
         rescue StandardError
