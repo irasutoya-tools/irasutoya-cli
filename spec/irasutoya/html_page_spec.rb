@@ -2,13 +2,14 @@
 
 require 'irasutoya/cli/illustration'
 require 'irasutoya/cli/download'
+require 'json'
 require 'openssl'
 require 'socket'
 
 RSpec.describe Irasutoya::Cli::HtmlPage do
   let(:host) { 'www.irasutoya.com' }
   let(:page_url) { "https://#{host}/cat.html" }
-  let(:http) { instance_double(Net::HTTP) }
+  let(:http) { instance_double(Net::HTTP, started?: true, finish: nil) }
   let(:headers) { { 'Accept-Encoding' => 'identity' } }
   let(:detail) { '<div class="entry"><img src="https://example.com/cat.png"></div>' }
   let(:search_html) { %(<div class="box"><a href="#{page_url}"></a><a>Cat</a></div>) }
@@ -16,7 +17,10 @@ RSpec.describe Irasutoya::Cli::HtmlPage do
   before do
     stub_const('Irasutoya::Cli::HtmlPage::MAX_BYTES', 256)
     allow(Net::HTTP).to receive(:start).with(host, 443, use_ssl: true, max_retries: 0,
-                                           ignore_eof: false).and_yield(http)
+                                           ignore_eof: false) do |*, &request|
+      allow(http).to receive(:started?).and_return(true)
+      request ? request.call(http) : http
+    end
   end
 
   it 'parses a response at the byte limit using its declared charset' do
@@ -90,23 +94,62 @@ RSpec.describe Irasutoya::Cli::HtmlPage do
     end
   end
 
-  it 'warns once for a truncated detail body and displays the surrounding results in order' do
-    paths = %w[/cat.html /cut.html /next.html]
-    list = paths.map { |path| search_html.sub('/cat.html', path) }.join
-    allow(respond('/search?q=cat')).to receive(:read_body).and_yield(list)
-    allow(respond('/cat.html')).to receive(:read_body).and_yield(detail)
-    allow(respond('/cut.html')).to receive(:read_body) do |&receive_chunk|
-      receive_chunk.call(detail[0, 10])
-      raise EOFError
-    end
-    allow(respond('/next.html')).to receive(:read_body).and_yield(detail)
-    expect(http).not_to receive(:finish)
+  context 'with persistent HTTPS search responses' do
+    let(:context) { local_tls_context }
 
-    failed_url = "https://#{host}/cut.html"
-    warning = "warn: Could not fetch result page #{failed_url}: Incomplete HTML response from #{failed_url}\n"
-    expect { Irasutoya::Cli::Runner.start(%w[search cat]) }
-      .to output(%r{Page URL:    #{Regexp.escape(page_url)}\n.*Page URL:    https://#{Regexp.escape(host)}/next\.html\n}m)
-      .to_stdout.and output(warning).to_stderr
+    before do
+      store = OpenSSL::X509::Store.new
+      store.add_cert(context.cert)
+      allow(Net::HTTP).to receive(:start).and_wrap_original do |start, host, port, **options|
+        start.call(host, port, nil, **options, cert_store: store, read_timeout: 2)
+      end
+    end
+
+    it 'fetches the search page and all three details on one connection and emits results in order' do
+      serve_html(context, [%w[/search?q=cat /first /second /third]]) do |origin|
+        urls = %w[first second third].map { |name| "#{origin}/#{name}" }
+        route_search_to(origin)
+
+        expect { run_search }
+          .to output(satisfy { |stdout| result_urls(stdout) == urls }).to_stdout.and output('').to_stderr
+      end
+    end
+
+    it 'uses a separate connection for a different origin and returns to the original connection' do
+      serve_html(context, [['/second']]) do |other_origin|
+        serve_html(context, [%w[/search?q=cat /first /third]], other_origin:) do |origin|
+          route_search_to(origin)
+          urls = ["#{origin}/first", "#{other_origin}/second", "#{origin}/third"]
+
+          expect { run_search }
+            .to output(satisfy { |stdout| result_urls(stdout) == urls }).to_stdout.and output('').to_stderr
+        end
+      end
+    end
+
+    it 'discards the connection after aborting an oversized chunked response and fetches the next detail' do
+      serve_html(context, [%w[/search?q=cat /first /second], ['/third']], oversized: '/second') do |origin|
+        route_search_to(origin)
+        urls = ["#{origin}/first", "#{origin}/third"]
+
+        expect { run_search }
+          .to output(satisfy { |stdout| result_urls(stdout) == urls }).to_stdout
+          .and output("warn: Could not fetch result page #{origin}/second: HTML response exceeds the 256-byte limit\n")
+          .to_stderr
+      end
+    end
+
+    it 'warns once for a truncated detail body and fetches the next detail on a new connection' do
+      serve_html(context, [%w[/search?q=cat /first /second], ['/third']], truncated: '/second') do |origin|
+        route_search_to(origin)
+        urls = ["#{origin}/first", "#{origin}/third"]
+        failed_url = "#{origin}/second"
+        warning = "warn: Could not fetch result page #{failed_url}: Incomplete HTML response from #{failed_url}\n"
+
+        expect { run_search }
+          .to output(satisfy { |stdout| result_urls(stdout) == urls }).to_stdout.and output(warning).to_stderr
+      end
+    end
   end
 
   it 'includes the redirected URL when the connection closes before the response headers' do
@@ -171,6 +214,55 @@ RSpec.describe Irasutoya::Cli::HtmlPage do
       .to raise_error(described_class::Error, 'Invalid HTTPS redirect for HTML page')
   end
 
+  def route_search_to(origin)
+    allow(Irasutoya::Cli::Illustration).to receive(:fetch_page_and_parse).and_wrap_original do |fetch, url|
+      fetch.call(origin + URI.parse(url).request_uri)
+    end
+  end
+
+  def run_search
+    Irasutoya::Cli::Runner.start(%w[search cat --jsonl])
+  end
+
+  def result_urls(stdout)
+    stdout.lines.map { |line| JSON.parse(line).fetch('page_url') }
+  end
+
+  def serve_html(context, connections, other_origin: nil, oversized: nil, truncated: nil)
+    TCPServer.open('127.0.0.1', 0) do |server|
+      origin = "https://127.0.0.1:#{server.addr[1]}"
+      list = %w[first second third].map do |name|
+        host = name == 'second' && other_origin ? other_origin : origin
+        %(<div class="box"><a href="#{host}/#{name}"></a><a>Cat</a></div>)
+      end.join
+      tls_server = OpenSSL::SSL::SSLServer.new(server, context)
+      worker = Thread.new do
+        connections.each do |paths|
+          socket = tls_server.accept
+          paths.each { |path| respond_to_html(socket, path, list, oversized:, truncated:) }
+          expect(socket.gets).to be_nil unless paths.last == truncated
+        ensure
+          socket&.close
+        end
+      end
+      yield origin
+      expect(worker.join(5)).to eq(worker)
+    ensure
+      worker&.kill&.join
+    end
+  end
+
+  def respond_to_html(socket, path, list, oversized:, truncated:)
+    expect(socket.gets).to eq("GET #{path} HTTP/1.1\r\n")
+    socket.to_enum(:each_line).take_while { |line| line != "\r\n" }
+    return write_oversized_chunk(socket) if path == oversized
+
+    body = path == '/search?q=cat' ? list : detail
+    length = body.bytesize
+    body = body.byteslice(0, 10) if path == truncated
+    socket.write("HTTP/1.1 200 OK\r\nContent-Length: #{length}\r\n\r\n#{body}")
+  end
+
   def respond(path, response = Net::HTTPOK.new('1.1', '200', 'OK'))
     allow(http).to receive(:request_get).with(path, headers).and_yield(response)
     response
@@ -197,16 +289,20 @@ RSpec.describe Irasutoya::Cli::HtmlPage do
   def serve_unterminated_chunk(server)
     socket = server.accept
     socket.each_line { |line| break if line == "\r\n" }
-    socket.write("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n101\r\n" + ('a' * 257))
+    write_oversized_chunk(socket)
     socket.read
   ensure
     socket&.close
   end
 
+  def write_oversized_chunk(socket)
+    socket.write("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n101\r\n" + ('a' * 257))
+  end
+
   def stream_oversized_detail
     response = respond('/cat.html')
     response['transfer-encoding'] = 'chunked'
-    expect(http).to receive(:finish)
+    expect(http).to receive(:finish).at_least(:once) { allow(http).to receive(:started?).and_return(false) }
     expect(response).to receive(:read_body) do |&receive_chunk|
       receive_chunk.call(detail.ljust(256))
       receive_chunk.call('猫')
