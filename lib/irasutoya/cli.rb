@@ -5,6 +5,7 @@ require 'tempfile'
 require 'timeout'
 require 'irasutoya/cli/https_url'
 require 'irasutoya/cli/image_transfer'
+require 'irasutoya/cli/page_url'
 require 'irasutoya/cli/terminal_output'
 require 'irasutoya/cli/version'
 require 'thor'
@@ -23,7 +24,7 @@ module Irasutoya
       def random
         require 'irasutoya/cli/illustration'
         with_preview_sessions { display(Illustration.random) }
-      rescue HtmlPage::Error, Illustration::FeedError => e
+      rescue HtmlPage::Error, Illustration::FeedError, URI::InvalidURIError => e
         raise Thor::Error, e.message
       end
 
@@ -70,7 +71,7 @@ module Irasutoya
       end
 
       def fetch_result(link)
-        url = HttpsUrl.parse(link.show_url).to_s
+        url = PageUrl.parse(link.show_url).to_s
         link = Irasutoya::IrasutoLink.new(title: link.title, show_url: url) if url != link.show_url
         link.extend(HtmlPage).fetch_irasuto
       rescue HtmlPage::Error, OpenURI::HTTPError, Timeout::Error, URI::InvalidURIError => e

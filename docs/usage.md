@@ -13,9 +13,12 @@ bundle exec exe/irasutoya random
 
 `search QUERY` takes one query argument. Quote a query that contains spaces.
 The command attempts to fetch up to three result pages, each of which can
-contain multiple images. The command warns and skips a result page if the URL cannot be converted
-to HTTPS, or if fetching the page returns an HTTP error or times out. `random` takes no arguments and
-shows one randomly selected illustration page.
+contain multiple images. Search and random use the same page URL rules as
+`download`: URLs must use HTTP or HTTPS, have the host `irasutoya.com` or
+`www.irasutoya.com`, and have a path ending in `.html`. Search warns and skips
+a result if its URL fails validation or the page fetch fails. `random` takes
+no arguments and shows one randomly selected illustration page. It reports an
+error if the selected URL fails validation.
 
 Both commands print the page URL, title, description, and an image URL for
 each image. When standard output is a terminal, the CLI also attempts to

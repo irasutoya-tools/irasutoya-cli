@@ -41,14 +41,15 @@ RSpec.describe 'JSON Lines output' do
     expect { runner.start(%w[search missing --jsonl]) }.to output('').to_stdout.and output('').to_stderr
   end
 
-  it 'skips results with unsupported URL schemes and images without sources' do
-    invalid_url = 'ftp://example.com/missing.html'
+  it 'skips invalid links and images without sources and passes the emitted page URL to download' do
+    invalid_urls = %w[https://example.com/cat.html https://www.irasutoya.com/cat]
     page_url = result.fetch('page_url')
     http = instance_double(Net::HTTP, finish: nil)
     expect(Net::HTTP).to receive(:start).with('www.irasutoya.com', 443, use_ssl: true, max_retries: 0,
                                              ignore_eof: false).once.and_return(http)
+    invalid_links = invalid_urls.map { |url| %(<div class="box"><a href="#{url}"></a><a>Invalid result</a></div>) }
     stub_html(http, '/search?q=%E7%8C%AB+%26+%E7%8A%AC', <<~HTML)
-      <div class="box"><a href="#{invalid_url}"></a><a>Invalid result</a></div>
+      #{invalid_links.join}
       <div class="box"><a href="#{page_url.sub('https:', 'http:')}"></a><a>Search title</a></div>
     HTML
     stub_html(http, URI.parse(page_url).request_uri, <<~HTML)
@@ -65,9 +66,32 @@ RSpec.describe 'JSON Lines output' do
 
     relative_images = %w[https://www.irasutoya.com/images/root.png https://www.irasutoya.com/2026/01/images/relative.png]
     expected = result.merge('image_urls' => result.fetch('image_urls') + relative_images + ['invalid image.png'])
-    expect { runner.start(['search', '猫 & 犬', '--jsonl']) }
-      .to output(satisfy { |stdout| stdout.lines.map { |line| JSON.parse(line) } == [expected] }).to_stdout
-      .and output("warn: Could not fetch result page #{invalid_url}: URL must use HTTPS\n").to_stderr
+    records = nil
+    expect { runner.start(['search', '猫 & 犬', '--jsonl']) }.to output(satisfy do |stdout|
+      records = stdout.lines.map { |line| JSON.parse(line) }
+      records == [expected]
+    end).to_stdout.and output(<<~WARNINGS).to_stderr
+      warn: Could not fetch result page #{invalid_urls[0]}: Page URL must be on irasutoya.com or www.irasutoya.com with a path ending in .html
+      warn: Could not fetch result page #{invalid_urls[1]}: Page URL must be on irasutoya.com or www.irasutoya.com with a path ending in .html
+    WARNINGS
+
+    download_http = instance_double(Net::HTTP)
+    expect(Net::HTTP).to receive(:start).with('www.irasutoya.com', 443, use_ssl: true, max_retries: 0,
+                                             ignore_eof: false).once.and_yield(download_http)
+    stub_html(download_http, URI.parse(page_url).request_uri, '<div class="entry"></div>')
+    expect do
+      expect { runner.start(['download', records.first.fetch('page_url'), '--output', 'images']) }
+        .to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+    end.to output("No images found on #{page_url}\n").to_stderr
+  end
+
+  it 'skips a search result with an unsupported URL scheme' do
+    url = 'ftp://example.com/missing.html'
+    invalid = instance_double(Irasutoya::IrasutoLink, show_url: url)
+    allow(Irasutoya::Cli::Illustration).to receive(:search).with(query: '猫').and_return([invalid])
+
+    expect { runner.start(%w[search 猫 --jsonl]) }
+      .to output('').to_stdout.and output("warn: Could not fetch result page #{url}: URL must use HTTPS\n").to_stderr
   end
 
   it 'warns on stderr and emits each successful result on its own line as search pages are fetched' do

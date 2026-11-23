@@ -7,6 +7,7 @@ RSpec.describe 'Random selection feed' do
   let(:http) { instance_double(Net::HTTP) }
   let(:feed) { Net::HTTPOK.new('1.1', '200', 'OK') }
   let(:headers) { { 'Accept-Encoding' => 'identity' } }
+  let(:feed_url) { 'http://www.irasutoya.com/cat.html' }
   let(:page_url) { 'https://www.irasutoya.com/cat.html' }
   let(:feed_limit) { Irasutoya::Cli::Illustration::MAX_FEED_BYTES }
   let(:error_message) { "Random selection feed response exceeds the #{feed_limit}-byte limit\n" }
@@ -28,7 +29,7 @@ RSpec.describe 'Random selection feed' do
     end.to output(/Page URL: +#{Regexp.escape(page_url)}/).to_stdout
   end
 
-  it 'displays the selected illustration in JSON Lines mode' do
+  it 'displays the normalized page URL in JSON Lines mode' do
     stub_successful_selection
 
     expect { runner.start(%w[random --jsonl]) }
@@ -55,7 +56,7 @@ RSpec.describe 'Random selection feed' do
   end
 
   def stub_successful_selection
-    jsonp = %({"feed":{"entry":[{"link":[{"rel":"self"},{"rel":"alternate","href":"#{page_url}"}]}]}})
+    jsonp = %({"feed":{"entry":[{"link":[{"rel":"self"},{"rel":"alternate","href":"#{feed_url}"}]}]}})
     body = "callback(#{jsonp});".ljust(feed_limit)
     feed['content-length'] = body.bytesize.to_s
     expect(feed).to receive(:read_body).and_yield(body[0, 32]).and_yield(body[32..])

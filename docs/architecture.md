@@ -6,8 +6,10 @@ their arguments and options, and the output for search and random results.
 
 - **Search and random** use the `irasutoya` gem to find and parse illustration
   pages. [`Illustration`](../lib/irasutoya/cli/illustration.rb) adapts the gem's
-  random-page fetch to use [`HttpsUrl`](../lib/irasutoya/cli/https_url.rb), which
-  also normalizes the URLs passed to search result fetches and image transfers.
+  random-page fetch to use the same [`PageUrl`](../lib/irasutoya/cli/page_url.rb)
+  validation as search results and downloads. Page URL validation and image
+  transfers use [`HttpsUrl`](../lib/irasutoya/cli/https_url.rb) to normalize
+  legacy HTTP URLs.
 - **Output and previews** start in the runner. JSON Lines output takes an early
   return, while text output can include previews when standard output is a
   terminal. [`Preview`](../lib/irasutoya/cli/preview.rb) selects the rendering
