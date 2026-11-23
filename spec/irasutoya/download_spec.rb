@@ -512,6 +512,40 @@ RSpec.describe 'irasutoya download' do
     end
   end
 
+  context 'when the full destination path exceeds the system limit' do
+    let(:filename) { "#{'a' * 200}.png" }
+    let(:image_urls) { ["https://example.com/#{filename}", "https://example.com/other/#{filename}"] }
+    let(:directory) do
+      workspace = File.realpath(@workspace)
+      path_limit = File.open(workspace) { |dir| dir.pathconf(Etc::PC_PATH_MAX) }
+      levels, tail = (path_limit - workspace.bytesize - 104).divmod(101)
+      File.join(workspace, *Array.new(levels, 'd' * 100), 'd' * (tail + 1))
+    end
+
+    it 'shortens both names, retaining the extension and collision suffix' do
+      paths = ["#{'a' * 96}.png", "#{'a' * 94}-1.png"].map { |name| File.join(directory, name) }
+
+      expect { run_download }.to output(paths.map { |path| "Saved: #{path}\n" }.join).to_stdout
+      expect(paths.map { |path| File.binread(path) }).to eq(image_data)
+      expect(Dir.children(directory)).to match_array(paths.map { |path| File.basename(path) })
+    end
+  end
+
+  context 'when no stem can fit the destination path' do
+    let(:image_urls) { ['https://example.com/a.png'] }
+
+    it 'reports the link error and removes the temporary file' do
+      allow(File).to receive(:link).and_raise(Errno::ENAMETOOLONG)
+      path = File.join(directory, '.png')
+
+      expect do
+        expect { run_download }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      end.to output("Could not save image at #{path}: #{Errno::ENAMETOOLONG.new.message}\n").to_stderr
+        .and output('').to_stdout
+      expect(Dir.children(directory)).to be_empty
+    end
+  end
+
   context 'when the illustration page contains no images' do
     let(:image_urls) { [] }
 
