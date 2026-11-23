@@ -611,6 +611,77 @@ RSpec.describe 'irasutoya download' do
     end
   end
 
+  context 'with a URL list' do
+    let(:input_path) { File.join(@workspace, 'pages.txt') }
+    let(:second_url) { 'https://www.irasutoya.com/2026/01/dog.html' }
+
+    it 'processes file entries in order and avoids filename collisions across pages' do
+      second_link = double(fetch_irasuto: double(image_urls: [image_urls.last]))
+      allow(Irasutoya::IrasutoLink).to receive(:new).with(title: nil, show_url: second_url).and_return(second_link)
+      File.write(input_path, "  #{second_url}\r\n\r\n#{page_url}\n")
+      paths = %w[cat.png cat-1.png cat-2.png].map { |name| File.join(directory, name) }
+
+      expect { run_list('--input', input_path) }.to output(paths.map { |path| "Saved: #{path}\n" }.join).to_stdout
+      expect(paths.map { |path| File.binread(path) }).to eq([image_data.last, *image_data])
+    end
+
+    it 'reads stdin, continues after a partial download, and processes repeated URLs' do
+      original_stdin = $stdin
+      $stdin = StringIO.new("#{page_url}\n#{second_url}\n#{page_url}")
+      failing_image = 'https://example.com/unavailable.png'
+      second_link = double(fetch_irasuto: double(image_urls: [image_urls.first, failing_image]))
+      allow(Irasutoya::IrasutoLink).to receive(:new).with(title: nil, show_url: second_url).and_return(second_link)
+      allow(http).to receive(:request_get).with('/unavailable.png', request_headers).and_raise(Net::ReadTimeout)
+      paths = %w[cat.png cat-1.png cat-2.png cat-3.png cat-4.png].map { |name| File.join(directory, name) }
+
+      expect do
+        expect { run_list('--input', '-') }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      end.to output(/Line 2: Could not download page: .*\nFailed to download 1 page\(s\)\.\n/).to_stderr
+        .and output(paths.map { |path| "Saved: #{path}\n" }.join).to_stdout
+      expect(Dir.children(directory).sort).to eq(paths.map { |path| File.basename(path) }.sort)
+      expect(paths.map { |path| File.binread(path) }).to eq([*image_data, image_data.first, *image_data])
+    ensure
+      $stdin = original_stdin
+    end
+
+    [Net::HTTPBadResponse, Net::HTTPHeaderSyntaxError].each do |error_class|
+      it "reports #{error_class} with the line number and downloads the next page" do
+        allow(Irasutoya::IrasutoLink).to receive(:new).with(title: nil, show_url: second_url).and_call_original
+        page_http = instance_double(Net::HTTP)
+        allow(Net::HTTP).to receive(:start).with('www.irasutoya.com', 443, use_ssl: true, max_retries: 0,
+                                                ignore_eof: false).and_yield(page_http)
+        allow(page_http).to receive(:request_get).with(URI(second_url).request_uri, request_headers)
+                                                 .and_raise(error_class, 'Malformed HTTP response')
+        File.write(input_path, "\n#{second_url}\n#{page_url}\n")
+        paths = %w[cat.png cat-1.png].map { |name| File.join(directory, name) }
+
+        expect do
+          expect { run_list('--input', input_path) }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+        end.to output("Line 2: Could not download page: Malformed HTTP response\nFailed to download 1 page(s).\n").to_stderr
+          .and output(paths.map { |path| "Saved: #{path}\n" }.join).to_stdout
+        expect(paths.map { |path| File.binread(path) }).to eq(image_data)
+      end
+    end
+
+    it 'reports an unreadable list' do
+      expect do
+        expect { run_list('--input', input_path) }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      end.to output(/Could not read URL list/).to_stderr
+    end
+
+    it 'requires exactly one input source' do
+      [[], [page_url, '--input', input_path]].each do |args|
+        expect do
+          expect { run_list(*args) }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+        end.to output("Provide either PAGE_URL or --input FILE.\n").to_stderr
+      end
+    end
+  end
+
+  def run_list(*args)
+    Irasutoya::Cli::Runner.start(['download', *args, '--output', directory])
+  end
+
   def expect_failed_download(message)
     path = File.join(directory, 'cat.png')
 
