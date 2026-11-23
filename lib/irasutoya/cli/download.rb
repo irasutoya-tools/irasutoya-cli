@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require 'etc'
 require 'fileutils'
 require 'irasutoya'
 require 'irasutoya/cli/html_page'
@@ -77,6 +78,7 @@ module Irasutoya
 
       def prepare_directory
         FileUtils.mkdir_p(@directory)
+        @filename_limit = nil
       rescue SystemCallError => e
         raise SaveError, TerminalOutput.escape_controls("Could not create output directory #{@directory}: #{e.message}")
       end
@@ -138,22 +140,35 @@ module Irasutoya
         end
       end
 
+      def filename_limit
+        return 255 unless defined?(Etc::PC_NAME_MAX)
+
+        File.open(@directory) { |directory| directory.pathconf(Etc::PC_NAME_MAX) } || 255
+      rescue SystemCallError, NotImplementedError
+        255
+      end
+
+      def fit_stem(stem, byte_limit)
+        return stem if stem.bytesize <= byte_limit
+
+        bytes = 0
+        stem.each_char do |character|
+          break if bytes + character.bytesize > byte_limit
+
+          bytes += character.bytesize
+        end
+        stem.byteslice(0, bytes)
+      end
+
       def link_with_stem(source, stem, ending)
+        limit = @filename_limit ||= filename_limit
+        stem = fit_stem(stem, limit - ending.bytesize)
         path = File.join(@directory, "#{stem}#{ending}")
         path.tap { File.link(source, path) }
       rescue Errno::EEXIST
         raise
-      rescue Errno::ENAMETOOLONG => e
-        raise_save_error(path, e) if stem.empty?
-
-        stem = stem[0...-1]
-        retry
       rescue SystemCallError => e
-        raise_save_error(path, e)
-      end
-
-      def raise_save_error(path, error)
-        raise SaveError, TerminalOutput.escape_controls("Could not save image at #{path}: #{error.message}")
+        raise SaveError, TerminalOutput.escape_controls("Could not save image at #{path}: #{e.message}")
       end
     end
   end
