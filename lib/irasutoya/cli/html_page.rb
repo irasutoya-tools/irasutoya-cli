@@ -2,6 +2,7 @@
 
 require 'net/http'
 require 'open-uri'
+require 'timeout'
 require 'irasutoya/cli/https_url'
 require 'irasutoya/cli/response_body'
 require 'irasutoya/cli/session_cache'
@@ -119,6 +120,10 @@ module Irasutoya
         with_html_connection(uri, sessions) do |http|
           fetch.with_connection(http) { get_html(http, uri, &) }
         end
+      rescue EOFError
+        raise Error, "Incomplete HTML response from #{uri}"
+      rescue Timeout::Error
+        raise Error, "HTML request timed out for #{uri}"
       end
 
       def get_html(http, uri)
