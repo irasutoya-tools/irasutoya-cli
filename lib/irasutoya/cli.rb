@@ -116,7 +116,7 @@ module Irasutoya
         end
       rescue ImageTransfer::SizeLimitExceededError
         say "warn: Image preview exceeds the #{ImageTransfer::MAX_IMAGE_BYTES}-byte limit", :yellow
-      rescue ImageTransfer::ResponseError,
+      rescue ImageTransfer::ResponseError, ImageTransfer::TooManyRedirectsError,
              TerminalImage::UnsupportedFormat, TerminalImage::UnsupportedTerminal, URI::InvalidURIError => e
         say "warn: Could not preview #{escape_controls(image_url)}: #{escape_controls(e.message)}", :yellow
       end

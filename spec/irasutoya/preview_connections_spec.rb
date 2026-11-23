@@ -85,6 +85,26 @@ RSpec.describe Irasutoya::Cli::Runner do
     end
   end
 
+  it 'warns once on the sixth redirect and previews the next image and search result' do
+    redirects = (0...6).map do |index|
+      ["/redirect-#{index}.png", '302 Found', { 'Location' => "/redirect-#{index + 1}.png" }, '']
+    end
+    serve_previews([*redirects, ['/next.png', '200 OK', {}, 'next'], ['/later.png', '200 OK', {}, 'later']]) do |origin|
+      failed_url = "#{origin}/redirect-0.png"
+      later_url = "#{origin}/later.png"
+      results = [illustration(failed_url, "#{origin}/next.png"), illustration(later_url)]
+      links = results.map { |result| instance_double(Irasutoya::IrasutoLink, show_url: result.url, fetch_irasuto: result) }
+      allow(Irasutoya::Cli::Illustration).to receive(:search).with(query: 'query').and_return(links)
+
+      runner.search('query')
+
+      expect(runner).to have_received(:say).with("warn: Could not preview #{failed_url}: Too many image redirects", :yellow)
+      expect(runner).to have_received(:say).with(start_with('warn:'), :yellow).once
+      expect(runner).to have_received(:say).with("Page URL:    #{later_url}")
+      expect(rendered).to eq(%w[next later])
+    end
+  end
+
   it 'warns once when the first preview connection is refused and continues previewing search results' do
     refused_url = 'https://refused.example/first.png'
     allow(Net::HTTP).to receive(:start).with('refused.example', 443, any_args).and_raise(Errno::ECONNREFUSED)
