@@ -196,11 +196,13 @@ RSpec.describe 'irasutoya download' do
   end
 
   it 'exits on the transfer deadline and keeps only the completed image' do
-    stub_const('Irasutoya::Cli::ImageTransfer::TRANSFER_TIMEOUT', 0.25)
+    transfer = Irasutoya::Cli::ImageTransfer
+    expect(Timeout).to receive(:timeout)
+      .with(transfer::TRANSFER_TIMEOUT, transfer::ResponseError, 'Image transfer deadline exceeded').twice.and_yield
     response = stub_image(image_urls.last, image_data.last)
     allow(response).to receive(:read_body) do |&receive_chunk|
       receive_chunk.call('partial')
-      sleep 1
+      raise transfer::ResponseError, 'Image transfer deadline exceeded'
     end
     path = File.join(directory, 'cat.png')
 
