@@ -367,6 +367,38 @@ RSpec.describe 'irasutoya download' do
     expect(Dir.children(directory)).to be_empty
   end
 
+  context 'when removing a temporary image fails' do
+    let(:image_urls) { ['https://example.com/cat.png'] }
+    let(:saved_path) { File.join(directory, 'cat.png') }
+    let(:cleanup_error) { "Could not remove temporary image at #{@temporary.path}: #{Errno::EACCES.new.message}\n" }
+
+    before do
+      FileUtils.mkdir_p(directory)
+      @temporary = Tempfile.create('.irasutoya-', directory, binmode: true)
+      allow(Tempfile).to receive(:create).with('.irasutoya-', directory, binmode: true).and_return(@temporary)
+      allow(File).to receive(:unlink).and_call_original
+      expect(File).to receive(:unlink).with(@temporary.path).once.and_raise(Errno::EACCES)
+    end
+
+    it 'announces the published image and reports the cleanup error' do
+      expect do
+        expect { run_download }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      end.to output("Saved: #{saved_path}\n").to_stdout.and output(cleanup_error).to_stderr
+      expect(File.binread(saved_path)).to eq(image_data.first)
+      expect(File).to be_identical(saved_path, @temporary.path)
+    end
+
+    it 'reports the original link error alongside the cleanup error without announcing a save' do
+      expect(File).to receive(:link).with(@temporary.path, saved_path).and_raise(Errno::EOPNOTSUPP)
+      save_error = "Could not save image at #{saved_path}: #{Errno::EOPNOTSUPP.new.message}\n"
+
+      expect do
+        expect { run_download }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      end.to output('').to_stdout.and output(cleanup_error + save_error).to_stderr
+      expect(File).not_to exist(saved_path)
+    end
+  end
+
   ["204 No Content\r\n", "200 OK\r\nContent-Length: 0\r\n"].each do |headers|
     it "rejects an empty #{headers.lines.first.strip} response without saving or announcing the image" do
       allow(http).to receive(:request_get).with('/cat.png', request_headers) do |&read_response|
