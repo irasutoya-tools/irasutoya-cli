@@ -69,17 +69,8 @@ RSpec.describe Irasutoya::Cli::HtmlPage do
   end
 
   it 'closes an oversized chunked stream even when the chunk terminator never arrives' do
-    context = local_tls_context
-    store = OpenSSL::X509::Store.new
-    store.add_cert(context.cert)
-    allow(Net::HTTP).to receive(:start).and_wrap_original do |start, host, port, **options, &request|
-      start.call(host, port, nil, **options, cert_store: store, read_timeout: 1, &request)
-    end
-
-    TCPServer.open('127.0.0.1', 0) do |server|
-      tls_server = OpenSSL::SSL::SSLServer.new(server, context)
-      worker = Thread.new { serve_unterminated_chunk(tls_server) }
-      url = "https://127.0.0.1:#{server.addr[1]}/cat.html"
+    with_tls_server do |server, url|
+      worker = Thread.new { serve_unterminated_chunk(server) }
       expect(Nokogiri::HTML).not_to receive(:parse)
 
       expect { Irasutoya::Cli::Illustration.fetch_page_and_parse(url) }
@@ -88,6 +79,37 @@ RSpec.describe Irasutoya::Cli::HtmlPage do
     ensure
       worker&.kill&.join
     end
+  end
+
+  it 'applies one deadline across redirects and a body that keeps making read progress' do
+    stub_const('Irasutoya::Cli::HtmlPage::FETCH_TIMEOUT', 0.9)
+    with_tls_server do |server, url|
+      worker = Thread.new { serve_slow_redirect_and_body(server) }
+      started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+
+      expect { Irasutoya::Cli::Illustration.fetch_page_and_parse(url) }
+        .to raise_error(described_class::Error, 'HTML fetch deadline exceeded')
+      expect(Process.clock_gettime(Process::CLOCK_MONOTONIC) - started).to be < 1.2
+    ensure
+      worker&.kill&.join
+    end
+  end
+
+  it 'warns about a detail page that exceeds its deadline and displays the next result' do
+    stub_const('Irasutoya::Cli::HtmlPage::FETCH_TIMEOUT', 0.5)
+    list = search_html + search_html.sub('/cat.html', '/next.html')
+    allow(respond('/search?q=cat')).to receive(:read_body).and_yield(list)
+    allow(respond('/cat.html')).to receive(:read_body) do |&receive_chunk|
+      receive_chunk.call(detail)
+      sleep 2
+    end
+    allow(http).to receive(:started?).and_return(true)
+    expect(http).to receive(:finish)
+    allow(respond('/next.html')).to receive(:read_body).and_yield(detail)
+
+    expect { Irasutoya::Cli::Runner.new.search('cat') }
+      .to output(/Page URL:    https:\/\/www\.irasutoya\.com\/next\.html/).to_stdout
+      .and output("warn: Could not fetch result page #{page_url}: HTML fetch deadline exceeded\n").to_stderr
   end
 
   it 'preserves an unrelated body read error' do
@@ -138,6 +160,20 @@ RSpec.describe Irasutoya::Cli::HtmlPage do
     response
   end
 
+  def with_tls_server
+    context = local_tls_context
+    store = OpenSSL::X509::Store.new
+    store.add_cert(context.cert)
+    allow(Net::HTTP).to receive(:start).and_wrap_original do |start, host, port, **options, &request|
+      start.call(host, port, nil, **options, cert_store: store, read_timeout: 1, &request)
+    end
+
+    TCPServer.open('127.0.0.1', 0) do |server|
+      tls_server = OpenSSL::SSL::SSLServer.new(server, context)
+      yield tls_server, "https://127.0.0.1:#{server.addr[1]}/cat.html"
+    end
+  end
+
   def local_tls_context
     key = OpenSSL::PKey::RSA.new(2048)
     cert = OpenSSL::X509::Certificate.new
@@ -161,6 +197,27 @@ RSpec.describe Irasutoya::Cli::HtmlPage do
     socket.each_line { |line| break if line == "\r\n" }
     socket.write("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n101\r\n" + ('a' * 257))
     socket.read
+  ensure
+    socket&.close
+  end
+
+  def serve_slow_redirect_and_body(server)
+    socket = server.accept
+    socket.each_line { |line| break if line == "\r\n" }
+    sleep 0.65
+    socket.write("HTTP/1.1 302 Found\r\nLocation: /next.html\r\nContent-Length: 0\r\n\r\n")
+    socket.close
+
+    socket = server.accept
+    socket.each_line { |line| break if line == "\r\n" }
+    socket.write("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n8\r\n")
+    8.times do
+      socket.write('a')
+      sleep 0.08
+    end
+    socket.write("\r\n0\r\n\r\n")
+  rescue IOError, SystemCallError, OpenSSL::SSL::SSLError
+    # The client can close the connection while the response is still being written.
   ensure
     socket&.close
   end
