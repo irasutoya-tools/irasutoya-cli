@@ -226,7 +226,16 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
         allow(response).to receive(:read_body).and_yield('<div class="entry"><img src="http://example.com/cat.png"></div>')
 
         allow($stdout).to receive(:tty?).and_return(false)
-        expect { subject }.to output(/Image URL:   http:\/\/example.com\/cat.png/).to_stdout
+        expect { subject }.to output(/Page URL:    https:\/\/www.irasutoya.com\/cat.html.*Image URL:   http:\/\/example.com\/cat.png/m).to_stdout
+      end
+
+      it 'rejects an invalid page URL from the random feed before fetching a detail page' do
+        illustration = Irasutoya::Cli::Illustration
+        allow(illustration).to receive(:random).and_call_original
+        allow(illustration).to receive(:random_url).and_return('https://www.irasutoya.com/cat')
+        expect(Net::HTTP).not_to receive(:start)
+
+        expect { subject }.to raise_error(Thor::Error, /path ending in \.html/)
       end
     end
 
@@ -234,7 +243,7 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
       subject { runner.search('query') }
 
       let(:irasuto_link) do
-        Irasutoya::IrasutoLink.new(title: 'title', show_url: 'https://example.com')
+        Irasutoya::IrasutoLink.new(title: 'title', show_url: 'https://www.irasutoya.com/cat.html')
       end
 
       before do
@@ -245,17 +254,17 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
       it_behaves_like 'a command displays irasuto'
 
       it 'upgrades a result page URL before fetching it' do
-        legacy_link = Irasutoya::IrasutoLink.new(title: 'title', show_url: 'http://example.com')
+        legacy_link = Irasutoya::IrasutoLink.new(title: 'title', show_url: 'http://www.irasutoya.com/cat.html')
         allow(Irasutoya::Cli::Illustration).to receive(:search).and_return([legacy_link])
         expect(legacy_link).not_to receive(:fetch_irasuto)
         expect(Irasutoya::IrasutoLink).to receive(:new)
-          .with(title: 'title', show_url: 'https://example.com').and_return(irasuto_link)
+          .with(title: 'title', show_url: 'https://www.irasutoya.com/cat.html').and_return(irasuto_link)
 
         expect { subject }.to output(expected).to_stdout
       end
 
       it 'displays each of the first three results before fetching the next page' do
-        links = Array.new(4) { instance_double(Irasutoya::IrasutoLink, show_url: 'https://example.com') }
+        links = Array.new(4) { instance_double(Irasutoya::IrasutoLink, show_url: 'https://www.irasutoya.com/cat.html') }
         allow(Irasutoya::Cli::Illustration).to receive(:search).with(query: 'query').and_return(links)
 
         links.take(3).each do |link|
@@ -269,7 +278,7 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
       end
 
       it 'skips a missing detail result and continues to the next link' do
-        missing_link = instance_double(Irasutoya::IrasutoLink, show_url: 'https://example.com', fetch_irasuto: nil)
+        missing_link = instance_double(Irasutoya::IrasutoLink, show_url: 'https://www.irasutoya.com/cat.html', fetch_irasuto: nil)
         allow(Irasutoya::Cli::Illustration).to receive(:search).and_return([missing_link, irasuto_link])
 
         expect { subject }.to output(expected).to_stdout
@@ -278,7 +287,7 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
       context 'when a preview fails' do # rubocop:disable Metrics/BlockLength
         let(:next_result) do
           Irasutoya::Irasuto.new(
-            url: 'http://example.com/next',
+            url: 'https://www.irasutoya.com/next.html',
             title: 'Next result',
             description: 'Another illustration',
             image_urls: ['http://example.com/next.png']
@@ -286,7 +295,7 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
         end
 
         before do
-          next_link = instance_double(Irasutoya::IrasutoLink, show_url: 'https://example.com/next', fetch_irasuto: next_result)
+          next_link = instance_double(Irasutoya::IrasutoLink, show_url: 'https://www.irasutoya.com/next.html', fetch_irasuto: next_result)
           allow(Irasutoya::Cli::Illustration).to receive(:search).and_return([irasuto_link, next_link])
           next_response = Net::HTTPOK.new('1.1', '200', 'OK')
           allow(next_response).to receive(:read_body).and_yield('next')
@@ -364,8 +373,8 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
       end
 
       shared_examples 'a recoverable detail page failure' do
-        let(:missing_url) { 'https://example.com/missing' }
-        let(:last_url) { 'https://example.com/last' }
+        let(:missing_url) { 'https://www.irasutoya.com/missing.html' }
+        let(:last_url) { 'https://www.irasutoya.com/last.html' }
         let(:warning) { "warn: Could not fetch result page #{missing_url}: #{detail_error.message}" }
 
         before do
@@ -395,20 +404,20 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
       context 'when the error message contains terminal controls' do
         it_behaves_like 'a recoverable detail page failure' do
           let(:detail_error) { OpenURI::HTTPError.new("404 Not Found\e[2J\r\n", nil) }
-          let(:warning) { 'warn: Could not fetch result page https://example.com/missing: 404 Not Found\x1B[2J\x0D\x0A' }
+          let(:warning) { 'warn: Could not fetch result page https://www.irasutoya.com/missing.html: 404 Not Found\x1B[2J\x0D\x0A' }
         end
       end
 
       context 'when the result URL contains terminal controls' do
         it_behaves_like 'a recoverable detail page failure' do
-          let(:missing_url) { "https://example.com/missing\a" }
+          let(:missing_url) { "https://www.irasutoya.com/missing.html\a" }
           let(:detail_error) { URI::InvalidURIError.new }
           let(:parse_error) do
             Irasutoya::Cli::HttpsUrl.parse(missing_url)
           rescue URI::InvalidURIError => e
             e.message
           end
-          let(:warning) { "warn: Could not fetch result page https://example.com/missing\\x07: #{parse_error}" }
+          let(:warning) { "warn: Could not fetch result page https://www.irasutoya.com/missing.html\\x07: #{parse_error}" }
         end
       end
 

@@ -491,7 +491,7 @@ RSpec.describe 'irasutoya download' do
     end
   end
 
-  ['https://example.com/cat.html', 'https://www.irasutoya.com/cat photo.html'].each do |url|
+  ['https://example.com/cat.html', 'https://www.irasutoya.com/cat', 'https://www.irasutoya.com/cat photo.html'].each do |url|
     it "rejects #{url.inspect} before fetching the page or creating the output directory" do
       expect(Irasutoya::IrasutoLink).not_to receive(:new)
 

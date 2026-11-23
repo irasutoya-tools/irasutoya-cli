@@ -28,7 +28,7 @@ RSpec.describe 'irasutoya executable' do # rubocop:disable Metrics/BlockLength
         module IllustrationFixture
           def random
             Irasutoya::Irasuto.new(
-              url: 'https://example.com/cat.html', title: 'Cat',
+              url: 'https://www.irasutoya.com/cat.html', title: 'Cat',
               description: 'A cat', image_urls: ['https://example.com/cat.png']
             )
           end
@@ -41,7 +41,7 @@ RSpec.describe 'irasutoya executable' do # rubocop:disable Metrics/BlockLength
           end
         end
 
-        Irasutoya::Cli::Illustration.extend(IllustrationFixture)
+        Irasutoya::Cli::Illustration.singleton_class.prepend(IllustrationFixture)
         load ARGV.shift
         abort 'Loaded terminal_image' if defined?(TerminalImage)
         abort 'Loaded ChunkyPNG' if defined?(ChunkyPNG)
@@ -55,7 +55,7 @@ RSpec.describe 'irasutoya executable' do # rubocop:disable Metrics/BlockLength
         expect(status.success?).to be(true), stderr
         expect(stderr).to be_empty
         expect(stdout).to eq(<<~EXPECTED)
-          Page URL:    https://example.com/cat.html
+          Page URL:    https://www.irasutoya.com/cat.html
           Title:       Cat
           Description: A cat
           Image URL:   https://example.com/cat.png
