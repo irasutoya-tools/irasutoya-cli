@@ -56,6 +56,8 @@ Each image download is limited to 10 MiB (10,485,760 bytes). If an image exceeds
 
 See the [CLI reference](https://github.com/irasutoya-tools/irasutoya-cli/blob/master/docs/usage.md)
 for checkout command arguments, output, and preview behavior.
+See [FAQ and troubleshooting](https://github.com/irasutoya-tools/irasutoya-cli/blob/master/docs/troubleshooting.md)
+for help with missing commands, previews, and download destinations.
 
 ## Contributing
 
