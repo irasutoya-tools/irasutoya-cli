@@ -14,6 +14,14 @@ module Irasutoya
       class SaveError < Error; end
 
       class TemporaryImage
+        IMAGE_SIGNATURES = {
+          '.png' => /\A\x89PNG\r\n\x1a\n\x00\x00\x00\x0dIHDR/n,
+          '.jpg' => /\A\xff\xd8\xff/n,
+          '.gif' => /\AGIF8[79]a/n,
+          '.webp' => /\ARIFF.{4}WEBPVP8[ LX]/mn
+        }.freeze
+        private_constant :IMAGE_SIGNATURES
+
         def initialize(directory)
           @file = Tempfile.create('.irasutoya-', directory, binmode: true)
         rescue SystemCallError => e
@@ -29,8 +37,14 @@ module Irasutoya
           with_io { @file.write(chunk) }
         end
 
-        def flush
-          with_io { @file.flush }
+        def image_extension
+          header = with_io do
+            @file.flush
+            @file.rewind
+            @file.read(16)
+          end
+          IMAGE_SIGNATURES.find { |_, signature| signature.match?(header) }&.first ||
+            raise(ImageTransfer::ResponseError, 'Unsupported image format')
         end
 
         def remove
@@ -99,7 +113,7 @@ module Irasutoya
         uri = HttpsUrl.parse(url)
         file = TemporaryImage.new(@directory)
         copy_image(uri, file, transfer)
-        link_image(file.tap(&:flush).path, image_filename(uri), next_suffixes)
+        link_image(file.path, image_filename(uri, file.image_extension), next_suffixes)
       rescue URI::InvalidURIError => e
         raise Thor::Error, TerminalOutput.escape_controls("Could not download #{url}: #{e.message}")
       rescue ImageTransfer::ResponseError => e
@@ -120,9 +134,14 @@ module Irasutoya
         raise Thor::Error, 'Image download redirect must use HTTPS'
       end
 
-      def image_filename(uri)
+      def image_filename(uri, extension)
         filename = File.basename(uri.path)
-        ['', '.', '..', '/'].include?(filename) ? 'image' : filename
+        filename = 'image' if ['', '.', '..', '/'].include?(filename)
+        original_extension = File.extname(filename)
+        original_format = original_extension.downcase.sub(/\A\.jpeg\z/, '.jpg')
+        return filename if original_format == extension
+
+        "#{filename.delete_suffix(original_extension)}#{extension}"
       end
 
       def link_image(source, filename, next_suffixes)

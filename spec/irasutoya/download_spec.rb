@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require 'base64'
+require 'chunky_png'
 require 'fileutils'
 require 'irasutoya'
 require 'irasutoya/cli/download'
@@ -11,7 +13,11 @@ require 'tmpdir'
 RSpec.describe 'irasutoya download' do
   let(:page_url) { 'https://www.irasutoya.com/2026/01/cat.html' }
   let(:image_urls) { %w[https://example.com/cat.png https://example.com/other/cat.png?size=large] }
-  let(:image_data) { ["\x89PNG".b, "\xFF\xFE".b] }
+  let(:image_data) do
+    [ChunkyPNG::Color::BLACK, ChunkyPNG::Color::WHITE].map do |color|
+      ChunkyPNG::Image.new(1, 1, color).to_blob
+    end
+  end
   let(:directory) { File.join(@workspace, 'nested', 'images') }
   let(:link) do
     Irasutoya::IrasutoLink.new(title: nil, show_url: page_url).extend(Irasutoya::Cli::HtmlPage)
@@ -74,6 +80,56 @@ RSpec.describe 'irasutoya download' do
 
   it 'upgrades an HTTP page URL before passing it to the scraper' do
     expect { run_download(page_url.sub('https:', 'http:')) }.to output(/Saved: .*cat\.png/).to_stdout
+  end
+
+  %w[html png].each do |extension|
+    context "when a .#{extension} URL returns HTML labeled as PNG" do
+      let(:image_urls) { ["https://example.com/cat.#{extension}"] }
+      let(:image_data) { ['<!doctype html><title>Unexpected document</title>'] }
+
+      it 'rejects the download before linking or announcing a file' do
+        response = stub_image(image_urls.first, image_data.first)
+        response['content-type'] = 'image/png'
+        expect(File).not_to receive(:link)
+
+        expect do
+          expect { run_download }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+        end.to output("Could not fetch image #{image_urls.first}: Unsupported image format\n").to_stderr
+          .and output('').to_stdout
+        expect(Dir.children(directory)).to be_empty
+      end
+    end
+  end
+
+  context 'when valid PNG images have misleading or missing extensions' do
+    let(:image_urls) { %w[https://example.com/cat.html https://example.com/other/cat] }
+
+    it 'uses the detected extension and resolves collisions on the resulting filename' do
+      paths = %w[cat.png cat-1.png].map { |name| File.join(directory, name) }
+
+      expect { run_download }.to output(paths.map { |path| "Saved: #{path}\n" }.join).to_stdout
+      expect(paths.map { |path| File.binread(path) }).to eq(image_data)
+      expect(Dir.children(directory)).to match_array(%w[cat.png cat-1.png])
+    end
+  end
+
+  context 'with JPEG, GIF, and WebP images' do
+    let(:image_urls) { %w[https://example.com/cat.jpeg https://example.com/cat.gif https://example.com/cat.webp] }
+    let(:image_data) do
+      %w[
+        /9j/4AAQSkZJRgABAQAAAAAAAAD/2wBDAAMCAgICAgMCAgIDAwMDBAYEBAQEBAgGBgUGCQgKCgkICQkKDA8MCgsOCwkJDRENDg8QEBEQCgwSExIQEw8QEBD/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AKp//2Q==
+        R0lGODlhAQABAPAAAAAAAAAAACH5BAAAAAAAIf8LSW1hZ2VNYWdpY2sOZ2FtbWE9MC40NTQ1NDUALAAAAAABAAEAAAICRAEAOw==
+        UklGRiQAAABXRUJQVlA4IBgAAAAwAQCdASoBAAEAAgA0JaQAA3AA/vv9UAA=
+      ].map { |encoded| Base64.strict_decode64(encoded) }
+    end
+
+    it 'saves the original bytes and preserves compatible extensions' do
+      paths = %w[cat.jpeg cat.gif cat.webp].map { |name| File.join(directory, name) }
+
+      expect { run_download }.to output(paths.map { |path| "Saved: #{path}\n" }.join).to_stdout
+      expect(paths.map { |path| File.binread(path) }).to eq(image_data)
+      expect(Dir.children(directory)).to match_array(%w[cat.jpeg cat.gif cat.webp])
+    end
   end
 
   it 'reports an existing output file once and exits before opening an image connection' do
@@ -142,7 +198,9 @@ RSpec.describe 'irasutoya download' do
 
   context 'with 100 images sharing a basename' do
     let(:image_urls) { Array.new(100) { |index| "https://example.com/#{index}/cat.png" } }
-    let(:image_data) { Array.new(100) { |index| "image #{index}" } }
+    let(:image_data) do
+      Array.new(100) { |index| ChunkyPNG::Image.new(1, 1, ChunkyPNG::Color.rgb(index, 0, 0)).to_blob }
+    end
 
     it 'saves each image under a sequential name with one link attempt per image' do
       expect(File).to receive(:link).exactly(100).times.and_call_original
