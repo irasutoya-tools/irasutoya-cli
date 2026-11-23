@@ -3,6 +3,7 @@
 require 'net/http'
 require 'timeout'
 require 'irasutoya/cli/https_url'
+require 'irasutoya/cli/session_cache'
 
 module Irasutoya
   module Cli
@@ -45,33 +46,6 @@ module Irasutoya
         private_class_method :validate
       end
       private_constant :ResponseBody
-
-      class SessionCache
-        MAX_SESSIONS = 4
-
-        def initialize
-          @sessions = {}
-        end
-
-        def fetch(origin)
-          # Keep the hash ordered from least to most recently used.
-          http = @sessions.delete(origin)
-          return @sessions[origin] = http if http
-
-          discard(@sessions.first.first) if @sessions.size >= MAX_SESSIONS
-          @sessions[origin] = yield
-        end
-
-        def discard(origin)
-          @sessions.delete(origin)&.finish
-        end
-
-        def close
-          @sessions.each_value(&:finish)
-          @sessions.clear
-        end
-      end
-      private_constant :SessionCache
 
       def self.fetch(uri, &on_chunk)
         with_sessions { |transfer| transfer.fetch(uri, &on_chunk) }
@@ -137,7 +111,10 @@ module Irasutoya
         origin = [uri.scheme, uri.hostname&.downcase, uri.port]
         yield session(uri, origin)
         completed = true
-      rescue Net::HTTPExceptions, EOFError => e
+      rescue Net::HTTPExceptions, EOFError, SocketError, OpenSSL::SSL::SSLError,
+             Net::OpenTimeout, Net::ReadTimeout, Net::WriteTimeout,
+             Errno::ECONNREFUSED, Errno::ECONNRESET, Errno::ECONNABORTED, Errno::EPIPE,
+             Errno::ETIMEDOUT, Errno::EHOSTUNREACH, Errno::ENETUNREACH => e
         raise ResponseError, e.message
       ensure
         @sessions.discard(origin) unless completed
