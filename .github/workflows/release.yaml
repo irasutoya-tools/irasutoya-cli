@@ -1,16 +1,10 @@
 name: release
 
-on:
-  workflow_dispatch:
-    inputs:
-      version:
-        description: Release version
-        required: true
-        type: choice
-        options:
-          - major
-          - minor
-          - patch
+"on":
+  push:
+    tags:
+      - 'v[0-9]*'
+
 jobs:
   push:
     name: Push gem to RubyGems.org
@@ -19,24 +13,26 @@ jobs:
       name: release
     permissions:
       id-token: write
-      contents: write
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
       - name: Set up Ruby
         uses: ruby/setup-ruby@f9c4492e86def3e644ab32a0ef185eda5b0c20d0 # v1.342.0
         with:
           ruby-version: .ruby-version
-      - name: Setup Git
+      - name: Verify release tag
         run: |
-          git config --global user.email "unhappychoice@gmail.com"
-          git config --global user.name "Yuji Ueki"
+          ruby -e '
+            version = Gem::Specification.load("irasutoya-cli.gemspec").version.to_s
+            tag = ENV.fetch("GITHUB_REF_NAME")
+            unless version.match?(/\A(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\z/) && tag == "v#{version}"
+              abort "Release tag #{tag.inspect} must match the stable gem version v#{version}"
+            end
+          '
       - name: Install locked dependencies
         env:
           BUNDLE_FROZEN: 'true'
         run: bundle install
-      - name: Bump version
-        run: |
-          BUNDLE_FROZEN=true bundle exec gem bump --version ${{inputs.version}} --message ':tada: Bump %{name} to %{version}'
-          bundle install
-          git add . && git commit --amend --no-edit
       - uses: rubygems/release-gem@5c53f5308233b7c0f47411f0471b3faae6fa57b2 # v1.4.2
