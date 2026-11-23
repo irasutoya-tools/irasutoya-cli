@@ -54,13 +54,19 @@ RSpec.describe 'JSON Lines output' do
     stub_html(http, URI.parse(page_url).request_uri, <<~HTML)
       <div class="post"><div class="title"><h2>白い猫</h2></div></div>
       <div class="entry">
-        <div class="separator"><img src="//example.com/cat.png"><img src="https://example.com/cat2.png"></div>
+        <div class="separator">
+          <img src="//example.com/cat.png"><img src="https://example.com/cat2.png">
+          <img src="/images/root.png"><img src="images/relative.png">
+          <img src="invalid image.png">
+        </div>
         <div class="separator">猫のイラスト&#10;別のポーズ</div>
       </div>
     HTML
 
+    relative_images = %w[https://www.irasutoya.com/images/root.png https://www.irasutoya.com/2026/01/images/relative.png]
+    expected = result.merge('image_urls' => result.fetch('image_urls') + relative_images + ['invalid image.png'])
     expect { runner.start(['search', '猫 & 犬', '--jsonl']) }
-      .to output(satisfy { |stdout| stdout.lines.map { |line| JSON.parse(line) } == [result] }).to_stdout
+      .to output(satisfy { |stdout| stdout.lines.map { |line| JSON.parse(line) } == [expected] }).to_stdout
       .and output("warn: Could not fetch result page #{invalid_url}: URL must use HTTPS\n").to_stderr
   end
 

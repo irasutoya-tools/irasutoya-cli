@@ -16,14 +16,34 @@ module Irasutoya
       def fetch_page_and_parse(url)
         uri = HttpsUrl.parse(url)
         MAX_REDIRECTS.downto(0) do |remaining|
-          location = request_html(uri) { |response, http| return parse_html(response, http) }
+          location = request_html(uri) { |response, http| return parse_html(response, http, uri) }
           raise Error, 'Too many HTML redirects' if remaining.zero?
 
           uri = html_redirect(uri, location)
         end
       end
 
+      def parse_show_page(document:)
+        if document.url
+          base = URI.parse(document.url)
+          document.css('.entry img[src]').each do |image|
+            image['src'] = resolve_image_source(base, image['src'])
+          end
+        end
+
+        super
+      end
+
       private
+
+      def resolve_image_source(base, source)
+        reference = URI.parse(source)
+        return source if reference.absolute? || source.empty?
+
+        (base + reference).to_s
+      rescue URI::Error
+        source
+      end
 
       def request_html(uri)
         Net::HTTP.start(uri.hostname, uri.port, use_ssl: true, max_retries: 0, ignore_eof: false) do |http|
@@ -39,9 +59,9 @@ module Irasutoya
         end
       end
 
-      def parse_html(response, http)
+      def parse_html(response, http, uri)
         check_html_size(response.content_length) unless response.key?('transfer-encoding')
-        Nokogiri::HTML.parse(read_html(response, http), nil, html_charset(response))
+        Nokogiri::HTML.parse(read_html(response, http), uri.to_s, html_charset(response))
       rescue IOError, Errno::EBADF => e
         raise e.cause if e.cause.is_a?(Error)
 

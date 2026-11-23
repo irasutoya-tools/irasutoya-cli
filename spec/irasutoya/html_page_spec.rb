@@ -2,8 +2,10 @@
 
 require 'irasutoya/cli/illustration'
 require 'irasutoya/cli/download'
+require 'irasutoya/cli/preview'
 require 'openssl'
 require 'socket'
+require 'tmpdir'
 
 RSpec.describe Irasutoya::Cli::HtmlPage do
   let(:host) { 'www.irasutoya.com' }
@@ -114,6 +116,46 @@ RSpec.describe Irasutoya::Cli::HtmlPage do
 
     expect(Irasutoya::Cli::Illustration.fetch_page_and_parse(page_url).at_css('img')['src'])
       .to eq('https://example.com/cat.png')
+  end
+
+  it 'lists, previews and saves relative images using the redirected detail page URL' do
+    final_host = 'detail.example.com'
+    final_path = '/2026/01/cat.html'
+    redirect = respond('/cat.html', Net::HTTPFound.new('1.1', '302', 'Found'))
+    redirect['location'] = "https://#{final_host}#{final_path}"
+    page_http = instance_double(Net::HTTP)
+    image_http = instance_double(Net::HTTP, finish: nil)
+    http_options = { use_ssl: true, max_retries: 0, ignore_eof: false }
+    allow(Net::HTTP).to receive(:start).with(final_host, 443, **http_options) do |*_, &request|
+      request ? request.call(page_http) : image_http
+    end
+    page = Net::HTTPOK.new('1.1', '200', 'OK')
+    allow(page_http).to receive(:request_get).with(final_path, headers).and_yield(page)
+    allow(page).to receive(:read_body).and_yield(
+      '<div class="entry"><img src="/images/root.png"><img src="images/relative.png"></div>'
+    )
+    image_paths = %w[/images/root.png /2026/01/images/relative.png]
+    image_paths.each do |path|
+      image = Net::HTTPOK.new('1.1', '200', 'OK')
+      allow(image).to receive(:read_body).and_yield(path)
+      expect(image_http).to receive(:request_get).with(path, headers).twice.and_yield(image)
+    end
+
+    allow(Irasutoya::Cli::Illustration).to receive(:random_url).and_return(page_url)
+    previews = []
+    allow(Irasutoya::Cli::Preview).to receive(:show) { |file| previews << file.read }
+    image_lines = image_paths.map { |path| "Image URL:   https://#{final_host}#{path}\n" }.join
+    expect do
+      allow($stdout).to receive(:tty?).and_return(true)
+      Irasutoya::Cli::Runner.new.random
+    end.to output(/#{Regexp.escape(image_lines)}\z/).to_stdout
+    expect(previews).to eq(image_paths)
+
+    Dir.mktmpdir do |directory|
+      saved = []
+      Irasutoya::Cli::Download.new(page_url, directory).save { |path| saved << path }
+      expect(saved.map { |path| File.binread(path) }).to eq(image_paths)
+    end
   end
 
   it 'stops after the redirect limit' do
