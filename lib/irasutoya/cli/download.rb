@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require 'etc'
 require 'fileutils'
 require 'irasutoya/cli/detail_page_parser'
 require 'irasutoya/cli/html_page'
@@ -60,6 +61,54 @@ module Irasutoya
       end
       private_constant :TemporaryImage
 
+      class ImageLink
+        def initialize(directory)
+          @directory = directory
+        end
+
+        def link(source, stem, ending)
+          stem = fit_stem(stem, (@filename_limit ||= filename_limit) - ending.bytesize)
+          path = File.join(@directory, "#{stem}#{ending}")
+          path.tap { File.link(source, path) }
+        rescue Errno::ENAMETOOLONG => e
+          raise_save_error(path, e) if stem.empty?
+
+          stem = stem[0...-1]
+          retry
+        rescue SystemCallError => e
+          raise if e.is_a?(Errno::EEXIST)
+
+          raise_save_error(path, e)
+        end
+
+        private
+
+        def filename_limit
+          return 255 unless defined?(Etc::PC_NAME_MAX)
+
+          File.open(@directory) { |directory| directory.pathconf(Etc::PC_NAME_MAX) } || 255
+        rescue SystemCallError, NotImplementedError
+          255
+        end
+
+        def fit_stem(stem, byte_limit)
+          return stem if stem.bytesize <= byte_limit
+
+          bytes = 0
+          stem.each_char do |character|
+            break if bytes + character.bytesize > byte_limit
+
+            bytes += character.bytesize
+          end
+          stem.byteslice(0, bytes)
+        end
+
+        def raise_save_error(path, error)
+          raise SaveError, TerminalOutput.escape_controls("Could not save image at #{path}: #{error.message}")
+        end
+      end
+      private_constant :ImageLink
+
       def initialize(page_url, directory)
         @page_url = page_url
         @directory = directory
@@ -80,6 +129,7 @@ module Irasutoya
 
       def prepare_directory
         FileUtils.mkdir_p(@directory)
+        @image_link = nil
       rescue SystemCallError => e
         raise SaveError, TerminalOutput.escape_controls("Could not create output directory #{@directory}: #{e.message}")
       end
@@ -145,7 +195,7 @@ module Irasutoya
         stem = filename.delete_suffix(extension)
         next_suffixes[filename].step do |index|
           ending = index.zero? ? extension : "-#{index}#{extension}"
-          path = link_with_stem(source, stem, ending)
+          path = image_link.link(source, stem, ending)
           next_suffixes[filename] = index + 1
           return path
         rescue Errno::EEXIST
@@ -153,22 +203,8 @@ module Irasutoya
         end
       end
 
-      def link_with_stem(source, stem, ending)
-        path = File.join(@directory, "#{stem}#{ending}")
-        path.tap { File.link(source, path) }
-      rescue Errno::EEXIST
-        raise
-      rescue Errno::ENAMETOOLONG => e
-        raise_save_error(path, e) if stem.empty?
-
-        stem = stem[0...-1]
-        retry
-      rescue SystemCallError => e
-        raise_save_error(path, e)
-      end
-
-      def raise_save_error(path, error)
-        raise SaveError, TerminalOutput.escape_controls("Could not save image at #{path}: #{error.message}")
+      def image_link
+        @image_link ||= ImageLink.new(@directory)
       end
     end
   end

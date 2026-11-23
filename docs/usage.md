@@ -74,6 +74,25 @@ When a filename is already taken, the command adds a suffix such as
 `-1` before the extension. If the page contains no images, the command
 reports an error.
 
+### Download from a URL list
+
+Use `--input FILE` in place of `PAGE_URL` to download a saved list with
+one illustration page URL per line. Use `--input -` to read from standard
+input.
+
+```sh
+bundle exec exe/irasutoya download --input pages.txt --output ./images
+
+bundle exec exe/irasutoya search '白い猫' --jsonl |
+  jq -r '.page_url' |
+  bundle exec exe/irasutoya download --input - --output ./images
+```
+
+The command trims surrounding whitespace, skips blank lines, and processes
+URLs in order, including repeated entries. If a page fails, the command
+reports the line on standard error and continues with the remaining pages.
+It keeps saved images and exits with status 1 if any page failed.
+
 ## Get help
 
 Use `bundle exec exe/irasutoya help` to list commands or

@@ -2,6 +2,7 @@
 
 require 'net/http'
 require 'timeout'
+require 'irasutoya/cli/https_url'
 require 'irasutoya/cli/session_cache'
 
 module Irasutoya
@@ -24,10 +25,10 @@ module Irasutoya
       class ResponseBody
         def self.read(response, max_bytes)
           bytes = 0
-          length = response.content_length unless response.key?('transfer-encoding')
+          length = checked_length(response, max_bytes)
           response.read_body do |chunk|
             bytes += chunk.bytesize
-            raise SizeLimitExceededError, "Image exceeds the #{max_bytes}-byte limit" if max_bytes && bytes > max_bytes
+            enforce_limit(bytes, max_bytes)
 
             yield chunk
           end
@@ -36,18 +37,30 @@ module Irasutoya
           validate(length, bytes, eof: e)
         end
 
+        def self.checked_length(response, max_bytes)
+          return if response.key?('transfer-encoding')
+
+          response.content_length.tap { |length| enforce_limit(length, max_bytes) if length }
+        end
+
+        def self.enforce_limit(bytes, max_bytes)
+          return unless max_bytes && bytes > max_bytes
+
+          raise SizeLimitExceededError, "Image exceeds the #{max_bytes}-byte limit"
+        end
+
         def self.validate(length, bytes, eof: nil)
           raise IncompleteBodyError, "expected #{length} bytes, received #{bytes}" if length && bytes < length
           raise IncompleteBodyError, eof.message if eof
           raise ResponseError, 'Empty image response' if bytes.zero?
         end
 
-        private_class_method :validate
+        private_class_method :checked_length, :enforce_limit, :validate
       end
       private_constant :ResponseBody
 
-      def self.fetch(uri, &on_chunk)
-        with_sessions { |transfer| transfer.fetch(uri, &on_chunk) }
+      def self.fetch(uri, max_bytes: nil, &on_chunk)
+        with_sessions { |transfer| transfer.fetch(uri, max_bytes:, &on_chunk) }
       end
 
       def self.copy(uri, destination, max_bytes:)
@@ -136,27 +149,12 @@ module Irasutoya
       end
 
       def redirect_uri(uri, response)
-        target = resolve_location(uri, response)
-        raise InsecureRedirectError, 'Image redirect must use HTTPS' unless target.is_a?(URI::HTTPS)
-
-        if target.host.to_s.empty? || !(1..65_535).cover?(target.port)
-          raise ResponseError, 'Image redirect has an invalid Location header'
-        end
-
-        target
-      end
-
-      def resolve_location(uri, response)
-        location = response['location']&.strip
-        raise ResponseError, 'Image redirect is missing a Location header value' if location.nil? || location.empty?
-
-        reference = URI.parse(location)
-        if location.start_with?('//') && reference.host.to_s.empty?
-          raise ResponseError, 'Image redirect has an invalid Location header'
-        end
-
-        uri + reference
-      rescue URI::Error
+        HttpsUrl.resolve_redirect(uri, response['location'])
+      rescue HttpsUrl::MissingLocation
+        raise ResponseError, 'Image redirect is missing a Location header value'
+      rescue HttpsUrl::InsecureRedirect
+        raise InsecureRedirectError, 'Image redirect must use HTTPS'
+      rescue HttpsUrl::InvalidRedirect
         raise ResponseError, 'Image redirect has an invalid Location header'
       end
     end
