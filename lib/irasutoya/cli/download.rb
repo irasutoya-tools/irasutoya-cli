@@ -34,19 +34,21 @@ module Irasutoya
         end
 
         def remove
-          with_io { @file.close }
-        ensure
-          unlink
+          begin
+            @file.close
+          ensure
+            unlink
+          end
+        rescue SystemCallError, IOError => e
+          raise SaveError, TerminalOutput.escape_controls("Could not remove temporary image at #{path}: #{e.message}")
         end
 
         private
 
         def unlink
-          with_io do
-            File.unlink(path)
-          rescue Errno::ENOENT
-            nil
-          end
+          File.unlink(path)
+        rescue Errno::ENOENT
+          nil
         end
 
         def with_io
@@ -62,14 +64,14 @@ module Irasutoya
         @directory = directory
       end
 
-      def save
+      def save(&report_saved)
         images = page_images
         raise Thor::Error, "No images found on #{@page_url}" if images.empty?
 
         prepare_directory
         next_suffixes = Hash.new(0)
         ImageTransfer.with_sessions do |transfer|
-          images.each { |url| yield save_image(url, next_suffixes, transfer) }
+          images.each { |url| save_image(url, next_suffixes, transfer, &report_saved) }
         end
       end
 
@@ -97,15 +99,30 @@ module Irasutoya
 
       def save_image(url, next_suffixes, transfer)
         uri = HttpsUrl.parse(url)
-        file = TemporaryImage.new(@directory)
-        copy_image(uri, file, transfer)
-        link_image(file.tap(&:flush).path, image_filename(uri), next_suffixes)
+        with_temporary_image do |file|
+          copy_image(uri, file, transfer)
+          yield link_image(file.tap(&:flush).path, image_filename(uri), next_suffixes)
+        end
       rescue URI::InvalidURIError => e
         raise Thor::Error, TerminalOutput.escape_controls("Could not download #{url}: #{e.message}")
       rescue ImageTransfer::ResponseError => e
         raise Thor::Error, "Could not fetch image #{url}: #{e.message}"
+      end
+
+      def with_temporary_image
+        file = TemporaryImage.new(@directory)
+        yield file
+        completed = true
       ensure
+        remove_temporary_image(file, completed)
+      end
+
+      def remove_temporary_image(file, completed)
         file&.remove
+      rescue SaveError => e
+        raise if completed
+
+        warn e.message
       end
 
       def copy_image(uri, destination, transfer)
