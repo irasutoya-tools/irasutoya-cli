@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 require 'fileutils'
-require 'irasutoya'
+require 'irasutoya/cli/detail_page_parser'
 require 'irasutoya/cli/html_page'
 require 'irasutoya/cli/terminal_output'
 require 'irasutoya/cli/image_transfer'
@@ -37,6 +37,29 @@ module Irasutoya
           with_io { @file.write(chunk) }
         end
 
+        def image_filename(uri)
+          extension = image_extension
+          filename = File.basename(uri.path)
+          filename = 'image' if ['', '.', '..', '/'].include?(filename)
+          original_extension = File.extname(filename)
+          original_format = original_extension.downcase.sub(/\A\.jpeg\z/, '.jpg')
+          return filename if original_format == extension
+
+          filename.delete_suffix(original_extension) + extension
+        end
+
+        def remove
+          begin
+            @file.close
+          ensure
+            unlink
+          end
+        rescue SystemCallError, IOError => e
+          raise SaveError, TerminalOutput.escape_controls("Could not remove temporary image at #{path}: #{e.message}")
+        end
+
+        private
+
         def image_extension
           header = with_io do
             @file.flush
@@ -47,20 +70,10 @@ module Irasutoya
             raise(ImageTransfer::ResponseError, 'Unsupported image format')
         end
 
-        def remove
-          with_io { @file.close }
-        ensure
-          unlink
-        end
-
-        private
-
         def unlink
-          with_io do
-            File.unlink(path)
-          rescue Errno::ENOENT
-            nil
-          end
+          File.unlink(path)
+        rescue Errno::ENOENT
+          nil
         end
 
         def with_io
@@ -76,14 +89,14 @@ module Irasutoya
         @directory = directory
       end
 
-      def save
+      def save(&report_saved)
         images = page_images
         raise Thor::Error, "No images found on #{@page_url}" if images.empty?
 
         prepare_directory
         next_suffixes = Hash.new(0)
         ImageTransfer.with_sessions do |transfer|
-          images.each { |url| yield save_image(url, next_suffixes, transfer) }
+          images.each { |url| save_image(url, next_suffixes, transfer, &report_saved) }
         end
       end
 
@@ -101,25 +114,40 @@ module Irasutoya
           raise Thor::Error, 'Provide an Irasutoya illustration page URL printed by search or random.'
         end
 
-        link = Irasutoya::IrasutoLink.new(title: nil, show_url: uri.to_s)
-        link.extend(HtmlPage).fetch_irasuto.image_urls
+        Irasutoya::IrasutoLink.new(title: nil, show_url: uri.to_s).extend(HtmlPage).fetch_irasuto.image_urls
       rescue URI::InvalidURIError
         raise Thor::Error, 'Provide an Irasutoya illustration page URL printed by search or random.'
       rescue HtmlPage::Error, OpenURI::HTTPError => e
-        raise Thor::Error, "Could not fetch illustration page #{@page_url}: #{e.message}"
+        message = "Could not fetch illustration page #{@page_url}: #{e.message}"
+        raise Thor::Error, TerminalOutput.escape_controls(message)
       end
 
       def save_image(url, next_suffixes, transfer)
         uri = HttpsUrl.parse(url)
-        file = TemporaryImage.new(@directory)
-        copy_image(uri, file, transfer)
-        link_image(file.path, image_filename(uri, file.image_extension), next_suffixes)
+        with_temporary_image do |file|
+          copy_image(uri, file, transfer)
+          yield link_image(file.path, file.image_filename(uri), next_suffixes)
+        end
       rescue URI::InvalidURIError => e
         raise Thor::Error, TerminalOutput.escape_controls("Could not download #{url}: #{e.message}")
       rescue ImageTransfer::ResponseError => e
         raise Thor::Error, "Could not fetch image #{url}: #{e.message}"
+      end
+
+      def with_temporary_image
+        file = TemporaryImage.new(@directory)
+        yield file
+        completed = true
       ensure
+        remove_temporary_image(file, completed)
+      end
+
+      def remove_temporary_image(file, completed)
         file&.remove
+      rescue SaveError => e
+        raise if completed
+
+        warn e.message
       end
 
       def copy_image(uri, destination, transfer)
@@ -132,16 +160,6 @@ module Irasutoya
         raise Thor::Error, 'Too many image download redirects'
       rescue ImageTransfer::InsecureRedirectError
         raise Thor::Error, 'Image download redirect must use HTTPS'
-      end
-
-      def image_filename(uri, extension)
-        filename = File.basename(uri.path)
-        filename = 'image' if ['', '.', '..', '/'].include?(filename)
-        original_extension = File.extname(filename)
-        original_format = original_extension.downcase.sub(/\A\.jpeg\z/, '.jpg')
-        return filename if original_format == extension
-
-        "#{filename.delete_suffix(original_extension)}#{extension}"
       end
 
       def link_image(source, filename, next_suffixes)
