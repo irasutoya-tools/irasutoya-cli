@@ -31,3 +31,10 @@ Fork the repository if needed, create a branch from `master`, and keep your
 changes focused. Add or update tests when you change behavior. Push your
 branch and open a pull request against `irasutoya-tools/irasutoya-cli:master`.
 Describe what changed and include the checks you ran.
+
+## Release a gem
+
+Update the version in `lib/irasutoya/cli/version.rb` and add the release entry
+to [CHANGELOG.md](CHANGELOG.md). Once those changes are on `master`, push a
+`vMAJOR.MINOR.PATCH` tag for that commit. The release workflow checks the tag
+against the gemspec version, builds the gem, and publishes it to RubyGems.org.

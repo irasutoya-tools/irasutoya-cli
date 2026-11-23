@@ -4,9 +4,13 @@ require 'irasutoya'
 require 'irasutoya/cli/illustration'
 require 'irasutoya/cli/preview'
 require 'net/http'
+require 'rbconfig'
 require 'stringio'
+require 'tmpdir'
 
 RSpec.describe 'ANSI image previews' do
+  let(:gif) { 'R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'.unpack1('m0') }
+
   before do
     allow(ENV).to receive(:fetch).and_call_original
     allow(ENV).to receive(:fetch).with('TERM_PROGRAM', nil).and_return(nil)
@@ -49,15 +53,54 @@ RSpec.describe 'ANSI image previews' do
   end
 
   it 'requires ImageMagick to preview a GIF through the ANSI fallback' do
-    gif = StringIO.new('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'.unpack1('m0'))
-
-    expect { Irasutoya::Cli::Preview.show(gif) }.to raise_error(TerminalImage::UnsupportedFormat, /Install ImageMagick/)
+    expect { Irasutoya::Cli::Preview.show(StringIO.new(gif)) }
+      .to raise_error(TerminalImage::UnsupportedFormat, /Install ImageMagick/)
   end
 
-  describe 'decompression limits' do
+  describe 'bounded previews' do
     let(:image) { ChunkyPNG::Image.new(1, 1, ChunkyPNG::Color.rgb(12, 34, 56)) }
     let(:valid_png) { image.to_blob }
     let(:urls) { %w[http://example.com/first.png http://example.com/second.png] }
+
+    it 'renders a converted GIF whose PNG output fits the byte budget' do
+      stub_const('Irasutoya::Cli::PreviewConversion::MAX_PNG_BYTES', valid_png.bytesize)
+      with_converter("STDOUT.binmode; STDOUT.write(#{valid_png.dump})") do
+        expect { Irasutoya::Cli::Preview.show(StringIO.new(gif)) }
+          .to output(/\e\[38;2;12;34;56m/).to_stdout
+      end
+    end
+
+    ['sleep 10', "STDOUT.reopen(File::NULL, 'w'); sleep 10"].each do |stall|
+      it "reaps a stalled converter (#{stall}) and renders the next preview" do
+        stub_const('Irasutoya::Cli::PreviewConversion::CONVERSION_TIMEOUT', 2)
+        with_converter(stall) do |pid_file|
+          expect_preview_recovery(gif, 'ImageMagick preview deadline exceeded')
+          expect_reaped(pid_file)
+        end
+      end
+    end
+
+    it 'reaps a converter that exceeds the byte budget and renders the next preview' do
+      stub_const('Irasutoya::Cli::PreviewConversion::MAX_PNG_BYTES', 64)
+      with_converter("STDOUT.sync = true; STDOUT.write('a' * 65); sleep 10") do |pid_file|
+        expect_preview_recovery(gif, 'ImageMagick output exceeds the 64-byte preview limit')
+        expect_reaped(pid_file)
+      end
+    end
+
+    it 'reports ImageMagick as unavailable when the detected executable cannot be started' do
+      allow(TerminalImage).to receive(:which).and_call_original
+      allow(TerminalImage).to receive(:which).with('magick').and_return(File.join(__dir__, 'missing-magick'))
+
+      expect { Irasutoya::Cli::Preview.show(StringIO.new(gif)) }
+        .to raise_error(TerminalImage::UnsupportedFormat, /Install ImageMagick/)
+    end
+
+    it 'warns and renders the next preview when ImageMagick disappears after its version check' do
+      with_converter('abort', remove_after_version: true) do
+        expect_preview_recovery(gif, 'ImageMagick could not convert the image to PNG')
+      end
+    end
 
     it 'renders an interlaced PNG and accepts compressed metadata within the budget' do
       interlaced = ChunkyPNG::Image.new(8, 8, image[0, 0])
@@ -133,24 +176,56 @@ RSpec.describe 'ANSI image previews' do
       expect_preview_recovery(datastream.to_blob)
     end
 
-    def expect_preview_recovery(rejected_png)
+    def with_converter(code, remove_after_version: false)
+      Dir.mktmpdir do |dir|
+        converter = File.join(dir, 'magick')
+        pid_file = File.join(dir, 'converter.pid')
+        File.write(converter, <<~RUBY)
+          #!#{RbConfig.ruby}
+          abort unless ARGV == ['-version'] || ARGV.last(2) == ['-[0]', 'png:-']
+          if ARGV == ['-version']
+            puts 'ImageMagick test converter'
+            File.unlink(__FILE__) if #{remove_after_version}
+            exit
+          end
+          abort unless STDIN.binmode.read == #{gif.dump}.b
+          File.write(#{pid_file.dump}, Process.pid)
+          #{code}
+        RUBY
+        File.chmod(0o755, converter)
+        allow(TerminalImage).to receive(:which).and_call_original
+        allow(TerminalImage).to receive(:which).with('magick').and_return(converter)
+        yield pid_file
+      end
+    end
+
+    def expect_reaped(pid_file)
+      pid = Integer(File.read(pid_file))
+      expect { Process.kill(0, pid) }.to raise_error(Errno::ESRCH)
+      expect { Process.waitpid(pid, Process::WNOHANG) }.to raise_error(Errno::ECHILD)
+    end
+
+    def expect_preview_recovery(rejected_image, message = 'PNG decompression exceeds the preview limit')
       result = Irasutoya::Irasuto.new(url: 'http://example.com/', title: 'Preview', description: '', image_urls: urls)
       allow(Irasutoya::Cli::Illustration).to receive(:random).and_return(result)
       http = instance_double(Net::HTTP)
       expect(Net::HTTP).to receive(:start).with('example.com', 443, use_ssl: true, max_retries: 0,
                                               ignore_eof: false).once.and_return(http)
       expect(http).to receive(:finish).once
-      urls.zip([rejected_png, valid_png]).each do |url, data|
+      urls.zip([rejected_image, valid_png]).each do |url, data|
         response = Net::HTTPOK.new('1.1', '200', 'OK')
         allow(response).to receive(:read_body).and_yield(data)
         allow(http).to receive(:request_get).with(URI.parse(url).request_uri, 'Accept-Encoding' => 'identity')
                                             .and_yield(response)
       end
 
-      warning = "warn: Could not preview #{urls.first}: PNG decompression exceeds the preview limit"
+      runner = Irasutoya::Cli::Runner.new([], {}, shell: Thor::Shell::Basic.new)
+      allow(runner).to receive(:say).and_call_original
+      expect(runner).to receive(:say).with(/\Awarn:/, :yellow).once.and_call_original
+      warning = "warn: Could not preview #{urls.first}: #{message}"
       expect do
         allow($stdout).to receive(:tty?).and_return(true)
-        Irasutoya::Cli::Runner.new([], {}, shell: Thor::Shell::Basic.new).random
+        runner.random
       end.to output(/#{Regexp.escape(warning)}\n\e\[38;2;12;34;56m/).to_stdout
     end
   end
