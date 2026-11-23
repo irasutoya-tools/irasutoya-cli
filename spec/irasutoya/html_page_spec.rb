@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require 'chunky_png'
 require 'irasutoya/cli/illustration'
 require 'irasutoya/cli/download'
 require 'irasutoya/cli/preview'
@@ -266,9 +267,12 @@ RSpec.describe Irasutoya::Cli::HtmlPage do
       '<div class="entry"><img src="/images/root.png"><img src="images/relative.png"></div>'
     )
     image_paths = %w[/images/root.png /2026/01/images/relative.png]
-    image_paths.each do |path|
+    image_data = [ChunkyPNG::Color::BLACK, ChunkyPNG::Color::WHITE].map do |color|
+      ChunkyPNG::Image.new(1, 1, color).to_blob
+    end
+    image_paths.zip(image_data).each do |path, data|
       image = Net::HTTPOK.new('1.1', '200', 'OK')
-      allow(image).to receive(:read_body).and_yield(path)
+      allow(image).to receive(:read_body).and_yield(data)
       expect(image_http).to receive(:request_get).with(path, headers).twice.and_yield(image)
     end
 
@@ -280,12 +284,12 @@ RSpec.describe Irasutoya::Cli::HtmlPage do
       allow($stdout).to receive(:tty?).and_return(true)
       Irasutoya::Cli::Runner.new.random
     end.to output(/#{Regexp.escape(image_lines)}\z/).to_stdout
-    expect(previews).to eq(image_paths)
+    expect(previews).to eq(image_data)
 
     Dir.mktmpdir do |directory|
       saved = []
       Irasutoya::Cli::Download.new(page_url, directory).save { |path| saved << path }
-      expect(saved.map { |path| File.binread(path) }).to eq(image_paths)
+      expect(saved.map { |path| File.binread(path) }).to eq(image_data)
     end
   end
 
