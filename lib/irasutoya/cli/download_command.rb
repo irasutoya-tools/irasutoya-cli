@@ -15,9 +15,9 @@ module Irasutoya
         @directory = directory
       end
 
-      def run(&report_saved)
+      def run(&)
         validate!
-        ImageTransfer.with_sessions { |transfer| download_target(transfer, &report_saved) }
+        ImageTransfer.with_sessions { |transfer| download_target(transfer, &) }
       end
 
       private
@@ -27,16 +27,16 @@ module Irasutoya
         raise Thor::Error, 'Provide either PAGE_URL or --input FILE.' if @page_url.nil? == @input.nil?
       end
 
-      def download_target(transfer, &report_saved)
-        return download_page(@page_url, transfer, &report_saved) unless @input
+      def download_target(transfer, &)
+        return download_page(@page_url, transfer, &) unless @input
 
         HtmlPage.with_sessions do
-          DownloadList.new(@input).each { |url| download_page(url, transfer, &report_saved) }
+          DownloadList.new(@input).each { |url| download_page(url, transfer, &) }
         end
       end
 
-      def download_page(url, transfer, &report_saved)
-        Download.new(url, @directory).save(transfer, &report_saved)
+      def download_page(url, transfer, &)
+        Download.new(url, @directory).save(transfer, &)
       rescue Download::SaveError => e
         raise Thor::Error, e.message
       end
