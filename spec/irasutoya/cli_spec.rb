@@ -239,6 +239,30 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
         expect { subject }.to output(/Page URL:    https:\/\/www.irasutoya.com\/cat.html.*Image URL:   http:\/\/example.com\/cat.png/m).to_stdout
       end
 
+      it 'skips images without a source and preserves the order of the remaining images' do
+        illustration = Irasutoya::Cli::Illustration
+        allow(illustration).to receive(:random).and_call_original
+        allow(illustration).to receive(:random_url).and_return('https://www.irasutoya.com/cat.html')
+        http = instance_double(Net::HTTP)
+        expect(Net::HTTP).to receive(:start).with('www.irasutoya.com', 443, use_ssl: true, max_retries: 0,
+                                                  ignore_eof: false).and_yield(http)
+        response = Net::HTTPOK.new('1.1', '200', 'OK')
+        allow(http).to receive(:request_get).with('/cat.html', 'Accept-Encoding' => 'identity').and_yield(response)
+        allow(response).to receive(:read_body).and_yield(<<~HTML)
+          <div class="entry">
+            <img alt="placeholder">
+            <img src="http://example.com/first.png">
+            <img alt="placeholder">
+            <img src="http://example.com/second.png">
+          </div>
+        HTML
+
+        allow($stdout).to receive(:tty?).and_return(false)
+        expect { subject }.to output(
+          /Image URL:   http:\/\/example\.com\/first\.png\nImage URL:   http:\/\/example\.com\/second\.png\n/
+        ).to_stdout
+      end
+
       it 'rejects an invalid page URL from the random feed before fetching a detail page' do
         illustration = Irasutoya::Cli::Illustration
         allow(illustration).to receive(:random).and_call_original
