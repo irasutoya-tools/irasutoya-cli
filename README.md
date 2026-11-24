@@ -56,6 +56,8 @@ The command recognizes PNG, JPEG, GIF, and WebP images by their file signature a
 
 Each image download is limited to 10 MiB (10,485,760 bytes). If an image exceeds the limit, the command stops and discards that download. Images already saved are kept.
 
+See [Getting started](https://github.com/irasutoya-tools/irasutoya-cli/blob/master/docs/getting-started.md)
+for a longer first walkthrough of the gem and a checkout.
 See the [CLI reference](https://github.com/irasutoya-tools/irasutoya-cli/blob/master/docs/usage.md)
 for checkout command arguments, output, and preview behavior.
 See [FAQ and troubleshooting](https://github.com/irasutoya-tools/irasutoya-cli/blob/master/docs/troubleshooting.md)
