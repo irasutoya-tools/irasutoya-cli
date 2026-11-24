@@ -750,11 +750,14 @@ RSpec.describe 'irasutoya download' do
     let(:input_path) { File.join(@workspace, 'pages.txt') }
     let(:second_url) { 'https://www.irasutoya.com/2026/01/dog.html' }
 
-    it 'processes file entries in order and avoids filename collisions across pages' do
+    it 'processes file entries in order, reuses one image connection across pages, and avoids filename collisions' do
       second_link = double(fetch_irasuto: double(image_urls: [image_urls.last]))
       allow(Irasutoya::IrasutoLink).to receive(:new).with(title: nil, show_url: second_url).and_return(second_link)
       File.write(input_path, "  #{second_url}\r\n\r\n#{page_url}\n")
       paths = %w[cat.png cat-1.png cat-2.png].map { |name| File.join(directory, name) }
+      expect(Net::HTTP).to receive(:start).with('example.com', 443, use_ssl: true, max_retries: 0,
+                                                ignore_eof: false).once.and_return(http)
+      expect(http).to receive(:finish).once
 
       expect { run_list('--input', input_path) }.to output(paths.map { |path| "Saved: #{path}\n" }.join).to_stdout
       expect(paths.map { |path| File.binread(path) }).to eq([image_data.last, *image_data])

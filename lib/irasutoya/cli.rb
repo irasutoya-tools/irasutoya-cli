@@ -48,18 +48,26 @@ module Irasutoya
 
         input = options[:input]
         directory = options[:output]
-        raise Thor::Error, 'Provide an output directory with --output.' if directory.empty?
-        raise Thor::Error, 'Provide either PAGE_URL or --input FILE.' if page_url.nil? == input.nil?
+        validate_download_target!(page_url, input, directory)
 
-        return download_page(page_url, directory) unless input
-
-        DownloadList.new(input).each { |url| download_page(url, directory) }
+        ImageTransfer.with_sessions { |transfer| download_target(page_url, input, directory, transfer) }
       end
 
       private
 
-      def download_page(url, directory)
-        Download.new(url, directory).save { |path| say "Saved: #{path}" }
+      def validate_download_target!(page_url, input, directory)
+        raise Thor::Error, 'Provide an output directory with --output.' if directory.empty?
+        raise Thor::Error, 'Provide either PAGE_URL or --input FILE.' if page_url.nil? == input.nil?
+      end
+
+      def download_target(page_url, input, directory, transfer)
+        return download_page(page_url, directory, transfer) unless input
+
+        DownloadList.new(input).each { |url| download_page(url, directory, transfer) }
+      end
+
+      def download_page(url, directory, transfer)
+        Download.new(url, directory).save(transfer) { |path| say "Saved: #{path}" }
       rescue Download::SaveError => e
         raise Thor::Error, e.message
       end
