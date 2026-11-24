@@ -782,6 +782,22 @@ RSpec.describe 'irasutoya download' do
       $stdin = original_stdin
     end
 
+    context 'with many entries sharing one filename' do
+      let(:image_urls) { ['https://example.com/cat.png'] }
+      let(:count) { 100 }
+
+      it 'reuses suffix progress across pages instead of replaying earlier claims' do
+        File.write(input_path, "#{Array.new(count, page_url).join("\n")}\n")
+        expect(File).to receive(:link).exactly(count).times.and_call_original
+
+        expect { run_list('--input', input_path) }.to output(/\A(Saved: .+\n){#{count}}\z/).to_stdout
+
+        names = %w[cat.png] + (1...count).map { |index| "cat-#{index}.png" }
+        expect(Dir.children(directory)).to match_array(names)
+        expect(names.map { |name| File.binread(File.join(directory, name)) }).to all(eq(image_data.first))
+      end
+    end
+
     [Net::HTTPBadResponse, Net::HTTPHeaderSyntaxError].each do |error_class|
       it "reports #{error_class} with the line number and downloads the next page" do
         allow(Irasutoya::IrasutoLink).to receive(:new).with(title: nil, show_url: second_url).and_call_original

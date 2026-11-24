@@ -62,11 +62,12 @@ module Irasutoya
       def download_target(page_url, input, directory, transfer)
         return download_page(page_url, directory, transfer) unless input
 
-        DownloadList.new(input).each { |url| download_page(url, directory, transfer) }
+        next_suffixes = Hash.new(0)
+        DownloadList.new(input).each { |url| download_page(url, directory, transfer, next_suffixes) }
       end
 
-      def download_page(url, directory, transfer)
-        Download.new(url, directory).save(transfer) { |path| say "Saved: #{path}" }
+      def download_page(url, directory, transfer, next_suffixes = Hash.new(0))
+        Download.new(url, directory).save(transfer, next_suffixes) { |path| say "Saved: #{path}" }
       rescue Download::SaveError => e
         raise Thor::Error, e.message
       end
