@@ -44,6 +44,7 @@ module Irasutoya
       def download(page_url = nil)
         require 'irasutoya/cli/download'
         require 'irasutoya/cli/download_list'
+        require 'irasutoya/cli/html_page'
 
         input = options[:input]
         directory = options[:output]
@@ -62,7 +63,9 @@ module Irasutoya
       def download_target(page_url, input, directory, transfer)
         return download_page(page_url, directory, transfer) unless input
 
-        DownloadList.new(input).each { |url| download_page(url, directory, transfer) }
+        HtmlPage.with_sessions do
+          DownloadList.new(input).each { |url| download_page(url, directory, transfer) }
+        end
       end
 
       def download_page(url, directory, transfer)
