@@ -1,9 +1,9 @@
 # frozen_string_literal: true
 
 require 'net/http'
-require 'timeout'
 require 'irasutoya/cli/https_url'
 require 'irasutoya/cli/session_cache'
+require 'irasutoya/cli/transfer_deadline'
 
 module Irasutoya
   module Cli
@@ -85,8 +85,9 @@ module Irasutoya
       def fetch(uri, max_bytes: nil, &)
         raise InvalidSchemeError, 'Image URL must use HTTPS' unless uri.is_a?(URI::HTTPS) && !uri.host.to_s.empty?
 
-        Timeout.timeout(TRANSFER_TIMEOUT, ResponseError, 'Image transfer deadline exceeded') do
-          fetch_image(uri, max_bytes, &)
+        deadline = TransferDeadline.new
+        deadline.run(TRANSFER_TIMEOUT, ResponseError, 'Image transfer deadline exceeded') do
+          fetch_image(uri, max_bytes, deadline, &)
         end
       end
 
@@ -96,9 +97,9 @@ module Irasutoya
 
       private
 
-      def fetch_image(uri, max_bytes, &)
+      def fetch_image(uri, max_bytes, deadline, &)
         MAX_REDIRECTS.downto(0) do |redirects_left|
-          redirect = request(uri, max_bytes, &)
+          redirect = request(uri, max_bytes, deadline, &)
           break unless redirect
           raise TooManyRedirectsError, 'Too many image redirects' if redirects_left.zero?
 
@@ -106,9 +107,9 @@ module Irasutoya
         end
       end
 
-      def request(uri, max_bytes, &on_chunk)
+      def request(uri, max_bytes, deadline, &on_chunk)
         redirect = nil
-        with_connection(uri) do |http|
+        with_connection(uri, deadline) do |http|
           http.request_get(uri.request_uri, 'Accept-Encoding' => 'identity') do |response|
             next stream_image(response, max_bytes, &on_chunk) unless REDIRECT_CODES.include?(response.code)
 
@@ -119,9 +120,9 @@ module Irasutoya
         redirect
       end
 
-      def with_connection(uri)
+      def with_connection(uri, deadline, &)
         origin = [uri.scheme, uri.hostname&.downcase, uri.port]
-        yield session(uri, origin)
+        deadline.with_connection(session(uri, origin), &)
         completed = true
       rescue Net::HTTPExceptions, EOFError, SocketError, OpenSSL::SSL::SSLError,
              Net::OpenTimeout, Net::ReadTimeout, Net::WriteTimeout,

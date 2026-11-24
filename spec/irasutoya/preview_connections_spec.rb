@@ -162,6 +162,24 @@ RSpec.describe Irasutoya::Cli::Runner do
     end
   end
 
+  it 'reports the deadline while a chunk is stalled and previews the next image on a fresh connection' do
+    stub_const('Irasutoya::Cli::ImageTransfer::TRANSFER_TIMEOUT', 0.25)
+    serve_previews(
+      [['/stalled.png', '200 OK', { 'Transfer-Encoding' => 'chunked' }, "2\r\nx"]],
+      [['/next.png', '200 OK', {}, 'next']]
+    ) do |origin|
+      stalled_url = "#{origin}/stalled.png"
+      allow(Irasutoya::Cli::Illustration).to receive(:random)
+        .and_return(illustration(stalled_url, "#{origin}/next.png"))
+
+      Timeout.timeout(3) { runner.random }
+
+      expect(runner).to have_received(:say)
+        .with("warn: Could not preview #{stalled_url}: Image transfer deadline exceeded", :yellow).once
+      expect(rendered).to eq(['next'])
+    end
+  end
+
   it 'rejects oversized headers while the server withholds the body and previews the next image' do
     stub_const('Irasutoya::Cli::ImageTransfer::MAX_IMAGE_BYTES', 4)
     serve_previews(

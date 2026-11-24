@@ -3,8 +3,8 @@
 require 'net/http'
 require 'open-uri'
 require 'timeout'
-require 'irasutoya/cli/http_deadline'
 require 'irasutoya/cli/https_url'
+require 'irasutoya/cli/transfer_deadline'
 require 'irasutoya/cli/response_body'
 require 'irasutoya/cli/session_cache'
 
@@ -29,9 +29,11 @@ module Irasutoya
       end
 
       def fetch_page_and_parse(url)
-        fetch = HttpDeadline.new(FETCH_TIMEOUT, Error.new('HTML fetch deadline exceeded'))
+        fetch = TransferDeadline.new
         sessions = Thread.current[:irasutoya_html_sessions]
-        fetch.run { fetch_html(HttpsUrl.parse(url), fetch, sessions) }
+        fetch.run(FETCH_TIMEOUT, Error, 'HTML fetch deadline exceeded') do
+          fetch_html(HttpsUrl.parse(url), fetch, sessions)
+        end
       end
 
       private
