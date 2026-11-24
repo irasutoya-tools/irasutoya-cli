@@ -57,6 +57,8 @@ module Irasutoya
         raise Error, "Incomplete HTML response from #{uri}"
       rescue Timeout::Error
         raise Error, "HTML request timed out for #{uri}"
+      rescue OpenURI::HTTPError => e
+        raise OpenURI::HTTPError.new("#{e.message} for #{uri}", e.io)
       end
 
       def get_html(http, uri)

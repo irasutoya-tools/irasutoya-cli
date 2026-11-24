@@ -230,12 +230,32 @@ RSpec.describe Irasutoya::Cli::HtmlPage do
     end
   end
 
+  {
+    'search' => ['/search?q=cat', Net::HTTPServiceUnavailable.new('1.1', '503', 'Service Unavailable')],
+    'random' => ['/cat.html', Net::HTTPNotFound.new('1.1', '404', 'Not Found')],
+    'download' => ['/cat.html', Net::HTTPNotFound.new('1.1', '404', 'Not Found')]
+  }.each do |command, (path, error_response)|
+    it "reports an HTTP error from #{command} as a CLI error without a JSON Lines record" do
+      args = { 'search' => %w[search cat --jsonl], 'random' => %w[random --jsonl],
+               'download' => ['download', page_url, '--output', 'unused'] }.fetch(command)
+      allow(Irasutoya::Cli::Illustration).to receive(:random_url).and_return(page_url) if command == 'random'
+      response = respond(path, error_response)
+      expect(response).not_to receive(:read_body)
+
+      message = "#{error_response.code} #{error_response.message} for https://#{host}#{path}"
+      message = "Could not fetch illustration page #{page_url}: #{message}" if command == 'download'
+      expect do
+        expect { Irasutoya::Cli::Runner.start(args) }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      end.to output("#{message}\n").to_stderr.and output('').to_stdout
+    end
+  end
+
   it 'does not read an error response body' do
     response = respond('/cat.html', Net::HTTPNotFound.new('1.1', '404', 'Not Found'))
     expect(response).not_to receive(:read_body)
 
     expect { Irasutoya::Cli::Illustration.fetch_page_and_parse(page_url) }
-      .to raise_error(OpenURI::HTTPError, '404 Not Found')
+      .to raise_error(OpenURI::HTTPError, "404 Not Found for #{page_url}")
   end
 
   it 'follows a relative redirect without reading its body' do

@@ -24,7 +24,7 @@ module Irasutoya
       def random
         require 'irasutoya/cli/illustration'
         with_preview_sessions { display(Illustration.random) }
-      rescue HtmlPage::Error, Illustration::FeedError, URI::InvalidURIError => e
+      rescue HtmlPage::Error, Illustration::FeedError, OpenURI::HTTPError, URI::InvalidURIError => e
         raise Thor::Error, e.message
       end
 
@@ -33,7 +33,7 @@ module Irasutoya
       def search(query)
         require 'irasutoya/cli/illustration'
         HtmlPage.with_sessions { with_preview_sessions { display_search_results(query) } }
-      rescue HtmlPage::Error => e
+      rescue HtmlPage::Error, OpenURI::HTTPError => e
         raise Thor::Error, e.message
       end
 
