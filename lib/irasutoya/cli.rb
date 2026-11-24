@@ -3,7 +3,6 @@
 require 'open-uri'
 require 'tempfile'
 require 'timeout'
-require 'irasutoya'
 require 'irasutoya/cli/detail_page_fetch'
 require 'irasutoya/cli/https_url'
 require 'irasutoya/cli/image_transfer'
