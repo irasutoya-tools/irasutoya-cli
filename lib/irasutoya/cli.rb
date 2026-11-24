@@ -42,37 +42,12 @@ module Irasutoya
       method_option :input, type: :string, banner: 'FILE', desc: 'Read page URLs from FILE (use - for stdin)'
       method_option :output, type: :string, required: true, banner: 'DIR'
       def download(page_url = nil)
-        require 'irasutoya/cli/download'
-        require 'irasutoya/cli/download_list'
-        require 'irasutoya/cli/html_page'
+        require 'irasutoya/cli/download_command'
 
-        input = options[:input]
-        directory = options[:output]
-        validate_download_target!(page_url, input, directory)
-
-        ImageTransfer.with_sessions { |transfer| download_target(page_url, input, directory, transfer) }
+        DownloadCommand.new(page_url, options[:input], options[:output]).run { |path| say "Saved: #{path}" }
       end
 
       private
-
-      def validate_download_target!(page_url, input, directory)
-        raise Thor::Error, 'Provide an output directory with --output.' if directory.empty?
-        raise Thor::Error, 'Provide either PAGE_URL or --input FILE.' if page_url.nil? == input.nil?
-      end
-
-      def download_target(page_url, input, directory, transfer)
-        return download_page(page_url, directory, transfer) unless input
-
-        HtmlPage.with_sessions do
-          DownloadList.new(input).each { |url| download_page(url, directory, transfer) }
-        end
-      end
-
-      def download_page(url, directory, transfer)
-        Download.new(url, directory).save(transfer) { |path| say "Saved: #{path}" }
-      rescue Download::SaveError => e
-        raise Thor::Error, e.message
-      end
 
       def display_search_results(query)
         Illustration.search(query:)

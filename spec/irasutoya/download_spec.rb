@@ -833,9 +833,9 @@ RSpec.describe 'irasutoya download' do
     [Net::HTTPBadResponse, Net::HTTPHeaderSyntaxError].each do |error_class|
       it "reports #{error_class} with the line number and downloads the next page" do
         allow(Irasutoya::IrasutoLink).to receive(:new).with(title: nil, show_url: second_url).and_call_original
-        page_http = instance_double(Net::HTTP)
+        page_http = instance_double(Net::HTTP, started?: true, finish: nil)
         allow(Net::HTTP).to receive(:start).with('www.irasutoya.com', 443, use_ssl: true, max_retries: 0,
-                                                ignore_eof: false).and_yield(page_http)
+                                                ignore_eof: false).and_return(page_http)
         allow(page_http).to receive(:request_get).with(URI(second_url).request_uri, request_headers)
                                                  .and_raise(error_class, 'Malformed HTTP response')
         File.write(input_path, "\n#{second_url}\n#{page_url}\n")
