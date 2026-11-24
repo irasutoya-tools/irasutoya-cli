@@ -12,6 +12,15 @@ module Irasutoya
       MAX_VERSION_BYTES = 16 * 1024
       READ_BYTES = 16 * 1024
       CONVERSION_FAILED = 'ImageMagick could not convert the image to PNG'
+      COMMAND_CACHE_KEY = :irasutoya_image_magick_command
+
+      def self.with_command_cache
+        previous = Thread.current[COMMAND_CACHE_KEY]
+        Thread.current[COMMAND_CACHE_KEY] = {}
+        yield
+      ensure
+        Thread.current[COMMAND_CACHE_KEY] = previous
+      end
 
       def self.png_source(file)
         type = FastImage.type(file)
@@ -31,6 +40,18 @@ module Irasutoya
         private
 
         def image_magick_command
+          cache = Thread.current[COMMAND_CACHE_KEY]
+          return detect_image_magick_command unless cache
+          return cache[:command] if cache.key?(:command)
+
+          cache[:command] = detect_image_magick_command
+        end
+
+        def invalidate_image_magick_command!
+          Thread.current[COMMAND_CACHE_KEY]&.delete(:command)
+        end
+
+        def detect_image_magick_command
           TerminalImage::PngConverter::COMMANDS.filter_map { |name| TerminalImage.send(:which, name) }.find do |path|
             image_magick?(path)
           end
@@ -50,6 +71,7 @@ module Irasutoya
 
           StringIO.new(png)
         rescue SystemCallError
+          invalidate_image_magick_command!
           raise TerminalImage::UnsupportedFormat, CONVERSION_FAILED
         end
 

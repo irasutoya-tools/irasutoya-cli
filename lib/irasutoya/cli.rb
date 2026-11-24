@@ -7,6 +7,7 @@ require 'irasutoya/cli/detail_page_fetch'
 require 'irasutoya/cli/https_url'
 require 'irasutoya/cli/image_transfer'
 require 'irasutoya/cli/page_url'
+require 'irasutoya/cli/preview_conversion'
 require 'irasutoya/cli/terminal_output'
 require 'irasutoya/cli/version'
 require 'thor'
@@ -134,7 +135,7 @@ module Irasutoya
       def with_preview_sessions
         ImageTransfer.with_sessions do |transfer|
           @preview_transfer = transfer
-          yield
+          PreviewConversion.with_command_cache { yield }
         end
       end
     end
