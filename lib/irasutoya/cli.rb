@@ -3,6 +3,7 @@
 require 'open-uri'
 require 'tempfile'
 require 'timeout'
+require 'irasutoya/cli/detail_page_fetch'
 require 'irasutoya/cli/https_url'
 require 'irasutoya/cli/image_transfer'
 require 'irasutoya/cli/page_url'
@@ -81,7 +82,7 @@ module Irasutoya
       def fetch_result(link)
         url = PageUrl.parse(link.show_url).to_s
         link = Irasutoya::IrasutoLink.new(title: link.title, show_url: url) if url != link.show_url
-        link.extend(HtmlPage).fetch_irasuto
+        DetailPageFetch.fetch(link)
       rescue HtmlPage::Error, OpenURI::HTTPError, Timeout::Error, URI::InvalidURIError => e
         warn "warn: Could not fetch result page #{escape_controls(link.show_url)}: #{escape_controls(e.message)}"
         nil
