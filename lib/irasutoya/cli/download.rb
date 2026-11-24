@@ -140,13 +140,13 @@ module Irasutoya
         @directory = directory
       end
 
-      def save(transfer, &report_saved)
+      def save(transfer, &)
         images = page_images
         raise Thor::Error, "No images found on #{@page_url}" if images.empty?
 
         prepare_directory
         next_suffixes = Hash.new(0)
-        images.each { |url| save_image(url, next_suffixes, transfer, &report_saved) }
+        images.each { |url| save_image(url, next_suffixes, transfer, &) }
       end
 
       private
