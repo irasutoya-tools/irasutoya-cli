@@ -50,7 +50,9 @@ $ bundle exec exe/irasutoya download 'PAGE_URL' --output ./images
 
 Choose an `--output` directory on a filesystem that supports hard links. The command uses hard links to save images, so a FAT32 destination will fail even if it is writable.
 
-The command creates the destination directory if needed, saves every image on the page, and prints each saved path. If a filename is already taken, the command adds a numeric suffix before the extension. Downloads work in terminals without inline preview support.
+The command creates the destination directory if needed, saves images on the page in order, and prints each saved path. If a filename is already taken, the command adds a numeric suffix before the extension. Downloads work in terminals without inline preview support.
+
+The command recognizes PNG, JPEG, GIF, and WebP images by their file signature and saves each with the extension matching its detected format (for example `.jpg` for JPEG), correcting the URL's extension when it disagrees. If an image on the page is in another format, the command reports an error and stops downloading from that page; images already saved earlier in the page are kept.
 
 Each image download is limited to 10 MiB (10,485,760 bytes). If an image exceeds the limit, the command stops and discards that download. Images already saved are kept.
 
