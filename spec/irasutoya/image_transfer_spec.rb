@@ -66,28 +66,22 @@ RSpec.describe Irasutoya::Cli::ImageTransfer do
   end
 
   it 'shares the deadline between a redirect and the final response' do
-    within_deadline = false
-    expect(Timeout).to receive(:timeout)
-      .with(described_class::TRANSFER_TIMEOUT, described_class::ResponseError, 'Image transfer deadline exceeded')
-      .once do |*_, &transfer|
-      within_deadline = true
-      transfer.call
-    ensure
-      within_deadline = false
-    end
+    stub_const('Irasutoya::Cli::ImageTransfer::TRANSFER_TIMEOUT', 0.25)
     redirect = redirect_to('next.png')
     image = Net::HTTPOK.new('1.1', '200', 'OK')
-    [['/images/start.png', redirect], ['/images/next.png', image]].each do |path, response|
-      expect(http).to receive(:request_get).with(path, headers).ordered do |&receive_response|
-        expect(within_deadline).to be(true)
-        receive_response.call(response)
-      end
+    expect(http).to receive(:request_get).with('/images/start.png', headers).ordered do |&receive_response|
+      sleep 0.15
+      receive_response.call(redirect)
     end
+    expect(http).to receive(:request_get).with('/images/next.png', headers).ordered.and_yield(image)
     allow(image).to receive(:read_body) do |&receive_chunk|
-      expect(within_deadline).to be(true)
+      sleep 0.15
       receive_chunk.call('image')
     end
-    expect { |chunks| described_class.fetch(url, &chunks) }.to yield_with_args('image')
+
+    expect do
+      described_class.fetch(url) { raise 'Unexpected image bytes' }
+    end.to raise_error(described_class::ResponseError, 'Image transfer deadline exceeded')
   end
 
   it 'rejects a sixth redirect before requesting its destination' do
