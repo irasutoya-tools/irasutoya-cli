@@ -9,9 +9,9 @@ module Irasutoya
         @deadline = monotonic_time + timeout
       end
 
-      def capture(args, max_bytes, **options)
+      def capture(args, max_bytes, **)
         IO.pipe(binmode: true) do |reader, writer|
-          pid = Process.spawn(*args, in: File::NULL, out: writer, err: File::NULL, **options)
+          pid = Process.spawn(*args, in: File::NULL, out: writer, err: File::NULL, **)
           writer.close
           output = read_output(reader, max_bytes)
           status = wait_for_exit(pid)

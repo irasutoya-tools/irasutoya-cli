@@ -85,8 +85,8 @@ module Irasutoya
           end
         end
 
-        def capture(args, max_bytes, **options)
-          ProcessCapture.new(CONVERSION_TIMEOUT).capture(args, max_bytes, **options)
+        def capture(args, max_bytes, **)
+          ProcessCapture.new(CONVERSION_TIMEOUT).capture(args, max_bytes, **)
         end
       end
     end
