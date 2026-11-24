@@ -102,6 +102,8 @@ module Irasutoya
         end
       rescue EOFError
         raise Error, "Incomplete HTML response from #{uri}"
+      rescue SocketError
+        raise Error, "Could not resolve host for #{uri}"
       rescue Timeout::Error
         raise Error, "HTML request timed out for #{uri}"
       end
