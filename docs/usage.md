@@ -69,10 +69,18 @@ random result. The command accepts HTTP or HTTPS illustration page URLs on
 URLs to HTTPS before downloading and rejects redirects to HTTP.
 
 `--output DIR` is required. The command creates the directory if needed,
-saves all images on the page, and prints a `Saved:` line for each file.
+saves images on the page in order, and prints a `Saved:` line for each file.
 When a filename is already taken, the command adds a suffix such as
 `-1` before the extension. If the page contains no images, the command
 reports an error.
+
+The command recognizes PNG, JPEG, GIF, and WebP images by their file
+signature, independent of the URL's extension, and saves each file with the
+extension that matches its detected format (for example, a PNG served from a
+URL ending in `.jpg` is saved with a `.png` extension). If an image on the
+page is in another format, such as SVG, the command reports an error and
+stops downloading from that page. Images already saved from earlier in the
+page are kept.
 
 ### Download from a URL list
 

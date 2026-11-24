@@ -30,6 +30,16 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
     expect(reference).to match(/up to three result pages, each of which can\s+contain multiple images/)
   end
 
+  it 'documents supported download formats and filename corrections in the README and CLI reference' do
+    readme = File.read(File.expand_path('../../README.md', __dir__))
+    reference = File.read(File.expand_path('../../docs/usage.md', __dir__))
+
+    [readme, reference].each do |doc|
+      expect(doc).to match(/PNG, JPEG, GIF, and WebP/)
+      expect(doc).to match(/stops downloading from that page/)
+    end
+  end
+
   describe 'commands' do # rubocop:disable Metrics/BlockLength
     let(:irasuto) do
       Irasutoya::Irasuto.new(
