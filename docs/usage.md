@@ -2,7 +2,8 @@
 
 These examples use the current checkout. Follow the
 [checkout setup instructions](../README.md#download-images-from-a-checkout)
-before running them.
+before running them, or see [Getting started](getting-started.md) for a
+guided first walkthrough.
 
 ## Search and browse illustrations
 
