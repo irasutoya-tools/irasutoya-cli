@@ -2,6 +2,7 @@
 
 require 'etc'
 require 'fileutils'
+require 'irasutoya'
 require 'irasutoya/cli/detail_page_fetch'
 require 'irasutoya/cli/html_page'
 require 'irasutoya/cli/page_url'

@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'json'
+require 'irasutoya'
 require 'irasutoya/cli/detail_page_fetch'
 require 'irasutoya/cli/html_page'
 require 'irasutoya/cli/http_deadline'
