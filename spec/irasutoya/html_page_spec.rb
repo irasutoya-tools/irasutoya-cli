@@ -60,7 +60,7 @@ RSpec.describe Irasutoya::Cli::HtmlPage do
     expect(Nokogiri::HTML).not_to receive(:parse)
     expect(Irasutoya::Cli::ImageTransfer).not_to receive(:fetch)
 
-    expect { Irasutoya::Cli::Download.new(page_url, 'unused').save }
+    expect { Irasutoya::Cli::ImageTransfer.with_sessions { |transfer| Irasutoya::Cli::Download.new(page_url, 'unused').save(transfer) } }
       .to raise_error(Thor::Error, "Could not fetch illustration page #{page_url}: HTML response exceeds the 256-byte limit")
   end
 
