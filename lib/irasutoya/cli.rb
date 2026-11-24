@@ -4,6 +4,7 @@ require 'open-uri'
 require 'tempfile'
 require 'timeout'
 require 'irasutoya/cli/detail_page_fetch'
+require 'irasutoya/cli/download_command'
 require 'irasutoya/cli/https_url'
 require 'irasutoya/cli/image_transfer'
 require 'irasutoya/cli/page_url'
@@ -14,6 +15,8 @@ require 'thor'
 module Irasutoya
   module Cli
     class Runner < Thor
+      include DownloadCommand
+
       JSONL_OPTION = { type: :boolean, desc: 'Print one JSON object per result' }.freeze
 
       def self.exit_on_failure?
@@ -53,24 +56,6 @@ module Irasutoya
       end
 
       private
-
-      def validate_download_target!(page_url, input, directory)
-        raise Thor::Error, 'Provide an output directory with --output.' if directory.empty?
-        raise Thor::Error, 'Provide either PAGE_URL or --input FILE.' if page_url.nil? == input.nil?
-      end
-
-      def download_target(page_url, input, directory, transfer)
-        return download_page(page_url, directory, transfer) unless input
-
-        next_suffixes = Hash.new(0)
-        DownloadList.new(input).each { |url| download_page(url, directory, transfer, next_suffixes) }
-      end
-
-      def download_page(url, directory, transfer, next_suffixes = Hash.new(0))
-        Download.new(url, directory).save(transfer, next_suffixes) { |path| say "Saved: #{path}" }
-      rescue Download::SaveError => e
-        raise Thor::Error, e.message
-      end
 
       def display_search_results(query)
         Illustration.search(query:)
