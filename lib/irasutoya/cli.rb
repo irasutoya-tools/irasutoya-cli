@@ -7,6 +7,7 @@ require 'irasutoya/cli/detail_page_fetch'
 require 'irasutoya/cli/https_url'
 require 'irasutoya/cli/image_transfer'
 require 'irasutoya/cli/page_url'
+require 'irasutoya/cli/preview_conversion'
 require 'irasutoya/cli/terminal_output'
 require 'irasutoya/cli/version'
 require 'thor'
@@ -109,10 +110,10 @@ module Irasutoya
         say "warn: Could not preview #{escape_controls(image_url)}: #{escape_controls(e.message)}", :yellow
       end
 
-      def with_preview_sessions
+      def with_preview_sessions(&block)
         ImageTransfer.with_sessions do |transfer|
           @preview_transfer = transfer
-          yield
+          PreviewConversion.with_command_cache(&block)
         end
       end
     end
