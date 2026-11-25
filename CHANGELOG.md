@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.0.2](https://github.com/irasutoya-tools/irasutoya-cli/compare/v1.0.1...v1.0.2) (2026-11-25)
+
+- Required `terminal_image ~> 1.1`.
+
 ## [1.0.1](https://github.com/irasutoya-tools/irasutoya-cli/compare/v1.0.0...v1.0.1) (2026-02-03)
 
 - Constrained the gem's runtime dependencies to `irasutoya ~> 2.0` and
