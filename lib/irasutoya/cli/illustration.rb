@@ -4,7 +4,7 @@ require 'json'
 require 'irasutoya'
 require 'irasutoya/cli/detail_page_fetch'
 require 'irasutoya/cli/html_page'
-require 'irasutoya/cli/http_deadline'
+require 'irasutoya/cli/transfer_deadline'
 require 'irasutoya/cli/page_url'
 
 module Irasutoya
@@ -32,9 +32,8 @@ module Irasutoya
         end
 
         def fetch_random_feed
-          deadline_error = FeedError.new('Random selection feed deadline exceeded')
-          deadline = HttpDeadline.new(FEED_TIMEOUT, deadline_error)
-          deadline.run do
+          deadline = TransferDeadline.new
+          deadline.run(FEED_TIMEOUT, FeedError, 'Random selection feed deadline exceeded') do
             Net::HTTP.start('www.irasutoya.com', 443, use_ssl: true, max_retries: 0, ignore_eof: false) do |http|
               deadline.with_connection(http) { read_random_feed(http) }
             end
