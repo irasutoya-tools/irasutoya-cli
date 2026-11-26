@@ -25,8 +25,26 @@ module Irasutoya
       class << self
         private
 
+        # The feed's total count can only be learned by fetching it, so the first fetch always
+        # targets index 1; when that also lands the randomly chosen index, it is reused instead
+        # of fetching the same entry again.
         def random_url
-          feed = decode_random_feed(fetch_random_feed)
+          feed = decode_random_feed(fetch_random_feed(1))
+          count = feed_count(feed)
+          raise FeedError, 'Random selection feed has no entries' if count.zero?
+
+          index = Random.rand(count) + 1
+          feed = decode_random_feed(fetch_random_feed(index)) unless index == 1
+          entry_alternate_url(feed)
+        end
+
+        def feed_count(feed)
+          Integer(feed.dig(:feed, :"openSearch$totalResults", :"$t").to_s, 10)
+        rescue TypeError, ArgumentError
+          raise FeedError, 'Random selection feed response has no usable total result count'
+        end
+
+        def entry_alternate_url(feed)
           unless feed in { feed: { entry: [Hash => entry, *] } }
             raise FeedError, 'Random selection feed response has no usable entry'
           end
@@ -48,26 +66,30 @@ module Irasutoya
           raise FeedError, 'Random selection feed response contains invalid JSON'
         end
 
-        def fetch_random_feed
+        def fetch_random_feed(index)
           deadline = TransferDeadline.new
           deadline.run(FEED_TIMEOUT, FeedError, 'Random selection feed deadline exceeded') do
             Net::HTTP.start('www.irasutoya.com', 443, use_ssl: true, max_retries: 0, ignore_eof: false) do |http|
-              deadline.with_connection(http) { read_random_feed(http) }
+              deadline.with_connection(http) { read_random_feed(http, index) }
             end
           end
         rescue Timeout::Error
           raise FeedError, 'Random selection feed request timed out'
         end
 
-        def read_random_feed(http)
+        def read_random_feed(http, index)
           limit_error = FeedError.new("Random selection feed response exceeds the #{MAX_FEED_BYTES}-byte limit")
-          http.request_get(random_api_path, 'Accept-Encoding' => 'identity') do |response|
+          http.request_get(random_api_path(index), 'Accept-Encoding' => 'identity') do |response|
             unless response.is_a?(Net::HTTPSuccess)
               raise FeedError, "Random selection feed request failed (HTTP #{response.code})"
             end
 
             return ResponseBody.read(response, http, max_bytes: MAX_FEED_BYTES, limit_error: limit_error)
           end
+        end
+
+        def random_api_path(index)
+          "/feeds/posts/summary?start-index=#{index}&max-results=1&alt=json-in-script"
         end
       end
     end

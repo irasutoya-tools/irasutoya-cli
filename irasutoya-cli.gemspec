@@ -26,7 +26,7 @@ Gem::Specification.new do |spec|
   spec.executables   = spec.files.grep(%r{\A#{spec.bindir}/}) { |path| File.basename(path) }
   spec.require_paths = ['lib']
 
-  spec.add_dependency 'irasutoya', '~> 2.0'
+  spec.add_dependency 'irasutoya', '~> 2.0', '>= 2.0.4'
   spec.add_dependency 'json'
   spec.add_dependency 'terminal_image', '~> 1.1'
   spec.add_dependency 'thor', '>= 1.5.0'
