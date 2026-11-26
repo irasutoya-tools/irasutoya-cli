@@ -31,13 +31,23 @@ RSpec.describe 'Sixel image previews' do
     end
   end
 
+  it 'raises a renderer error instead of a system error when img2sixel disappears before it runs' do
+    with_img2sixel('exit 0') do |script|
+      File.delete(script)
+      with_preview_file(png) do |file|
+        expect { Irasutoya::Cli::Preview.show(file) }
+          .to raise_error(TerminalImage::UnsupportedTerminal, 'img2sixel could not render the preview')
+      end
+    end
+  end
+
   def with_img2sixel(code)
     Dir.mktmpdir do |dir|
       script = File.join(dir, 'img2sixel')
       File.write(script, "#!#{RbConfig.ruby}\n#{code}\n")
       File.chmod(0o755, script)
       allow(TerminalImage).to receive(:which).with('img2sixel').and_return(script)
-      yield
+      yield script
     end
   end
 
