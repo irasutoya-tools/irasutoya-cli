@@ -5,6 +5,7 @@ require 'chunky_png'
 require 'fileutils'
 require 'irasutoya'
 require 'irasutoya/cli/download'
+require 'json'
 require 'nokogiri'
 require 'irasutoya/cli/preview'
 require 'stringio'
@@ -880,6 +881,60 @@ RSpec.describe 'irasutoya download' do
     end
   end
 
+  context 'with --metadata' do
+    let(:title) { 'Cat illustration' }
+    let(:description) { 'A black cat and a white cat.' }
+
+    before do
+      allow(link).to receive(:fetch_irasuto).and_return(
+        double(url: page_url, title: title, description: description, image_urls: image_urls)
+      )
+    end
+
+    it 'saves a JSON sidecar with the page metadata and the saved image filenames' do
+      paths = %w[cat.png cat-1.png].map { |name| File.join(directory, name) }
+      metadata_path = File.join(directory, 'cat.json')
+
+      expect { run_download(page_url, '--metadata') }.to output(
+        [*paths, metadata_path].map { |path| "Saved: #{path}\n" }.join
+      ).to_stdout
+
+      expect(JSON.parse(File.read(metadata_path))).to eq(
+        'page_url' => page_url, 'title' => title, 'description' => description,
+        'image_filenames' => %w[cat.png cat-1.png]
+      )
+    end
+
+    it 'does not save a sidecar file without --metadata' do
+      run_download
+
+      expect(Dir.children(directory)).to match_array(%w[cat.png cat-1.png])
+    end
+
+    it 'adds a numeric suffix when the sidecar filename is already taken' do
+      FileUtils.mkdir_p(directory)
+      File.write(File.join(directory, 'cat.json'), 'original')
+
+      run_download(page_url, '--metadata')
+
+      expect(File.read(File.join(directory, 'cat.json'))).to eq('original')
+      expect(JSON.parse(File.read(File.join(directory, 'cat-1.json')))['image_filenames'])
+        .to eq(%w[cat.png cat-1.png])
+    end
+
+    it 'reports a metadata write failure after keeping the saved images' do
+      allow(Tempfile).to receive(:create).and_call_original
+      allow(Tempfile).to receive(:create).with('.irasutoya-', directory).and_raise(Errno::ENOSPC)
+      paths = %w[cat.png cat-1.png].map { |name| File.join(directory, name) }
+
+      expect do
+        expect { run_download(page_url, '--metadata') }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      end.to output("Could not save metadata in #{directory}: #{Errno::ENOSPC.new.message}\n").to_stderr
+      expect(paths.map { |path| File.binread(path) }).to eq(image_data)
+      expect(Dir.children(directory)).to match_array(%w[cat.png cat-1.png])
+    end
+  end
+
   def run_list(*args)
     Irasutoya::Cli::Runner.start(['download', *args, '--output', directory])
   end
@@ -895,8 +950,8 @@ RSpec.describe 'irasutoya download' do
     expect(File.binread(path)).to eq(image_data.first)
   end
 
-  def run_download(url = page_url)
-    Irasutoya::Cli::Runner.start(['download', url, '--output', directory])
+  def run_download(url = page_url, *extra_args)
+    Irasutoya::Cli::Runner.start(['download', url, '--output', directory, *extra_args])
   end
 
   def stub_image(url, data)

@@ -9,10 +9,11 @@ require 'irasutoya/cli/image_transfer'
 module Irasutoya
   module Cli
     class DownloadCommand
-      def initialize(page_url, input, directory)
+      def initialize(page_url, input, directory, metadata: false)
         @page_url = page_url
         @input = input
         @directory = directory
+        @metadata = metadata
       end
 
       def run(&)
@@ -37,7 +38,7 @@ module Irasutoya
       end
 
       def download_page(url, transfer, next_suffixes = Hash.new(0), &)
-        Download.new(url, @directory).save(transfer, next_suffixes, &)
+        Download.new(url, @directory, metadata: @metadata).save(transfer, next_suffixes, &)
       rescue Download::SaveError => e
         raise Thor::Error, e.message
       end
