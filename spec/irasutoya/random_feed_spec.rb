@@ -39,6 +39,7 @@ RSpec.describe 'Random selection feed' do
   it 'rejects a declared oversized feed before reading its body' do
     feed['content-length'] = (feed_limit + 1).to_s
     expect(feed).not_to receive(:read_body)
+    expect(JSON).not_to receive(:parse)
 
     expect_feed_failure(['random'])
   end
@@ -51,13 +52,41 @@ RSpec.describe 'Random selection feed' do
       read_chunk.call('猫')
       raise 'Read continued past the feed byte limit'
     end
+    expect(JSON).not_to receive(:parse)
 
     expect_feed_failure(%w[random --jsonl])
   end
 
+  {
+    'an empty feed' => ['callback({"feed":{"entry":[]}});', 'has no usable entry'],
+    'an invalid entry' => ['callback({"feed":{"entry":[null]}});', 'has no usable entry'],
+    'invalid JSONP' => ['callback({"feed":{}}', 'is not valid JSONP'],
+    'invalid JSON' => ['callback({"feed":});', 'contains invalid JSON'],
+    'a missing alternate link' => ['callback({"feed":{"entry":[{"link":[{"rel":"self"}]}]}});',
+                                   'has no usable alternate link'],
+    'an alternate link without an href' => ['callback({"feed":{"entry":[{"link":[{"rel":"alternate"}]}]}});',
+                                            'has no usable alternate link']
+  }.each do |description, (body, reason)|
+    it "reports #{description}" do
+      expect(feed).to receive(:read_body).and_yield(body)
+
+      expect_feed_failure(%w[random --jsonl], "Random selection feed response #{reason}\n")
+    end
+  end
+
+  context 'when the feed returns HTTP 503' do
+    let(:feed) { Net::HTTPServiceUnavailable.new('1.1', '503', 'Service Unavailable') }
+
+    it 'reports the HTTP status without reading the response body' do
+      expect(feed).not_to receive(:read_body)
+
+      expect_feed_failure(%w[random --jsonl], "Random selection feed request failed (HTTP 503)\n")
+    end
+  end
+
   def stub_successful_selection
     jsonp = %({"feed":{"entry":[{"link":[{"rel":"self"},{"rel":"alternate","href":"#{feed_url}"}]}]}})
-    body = "callback(#{jsonp});".ljust(feed_limit)
+    body = "gdata.io.handleScriptLoaded(\n#{jsonp}\n);".ljust(feed_limit)
     feed['content-length'] = body.bytesize.to_s
     expect(feed).to receive(:read_body).and_yield(body[0, 32]).and_yield(body[32..])
     page = Net::HTTPOK.new('1.1', '200', 'OK')
@@ -67,11 +96,10 @@ RSpec.describe 'Random selection feed' do
     )
   end
 
-  def expect_feed_failure(args)
-    expect(JSON).not_to receive(:parse)
-    expect(Irasutoya::Cli::Illustration).not_to receive(:fetch_page_and_parse)
+  def expect_feed_failure(args, message = error_message)
+    expect(http).not_to receive(:request_get).with(/\.html/, headers)
     expect do
       expect { runner.start(args) }.to raise_error(SystemExit) { |error| expect(error.success?).to be false }
-    end.to output(error_message).to_stderr.and output('').to_stdout
+    end.to output(message).to_stderr.and output('').to_stdout
   end
 end
