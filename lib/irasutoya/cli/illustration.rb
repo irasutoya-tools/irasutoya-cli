@@ -26,9 +26,26 @@ module Irasutoya
         private
 
         def random_url
-          jsonp = fetch_random_feed
-          JSON.parse(jsonp[/{.+}/]).fetch('feed').fetch('entry').first.fetch('link')
-              .find { |link| link['rel'] == 'alternate' }.fetch('href')
+          feed = decode_random_feed(fetch_random_feed)
+          unless feed in { feed: { entry: [Hash => entry, *] } }
+            raise FeedError, 'Random selection feed response has no usable entry'
+          end
+
+          links = entry[:link]
+          alternate = links.find { |link| link in { rel: 'alternate' } } if links.is_a?(Array)
+          href = alternate&.fetch(:href, nil)
+          return href if href.is_a?(String) && !href.empty?
+
+          raise FeedError, 'Random selection feed response has no usable alternate link'
+        end
+
+        def decode_random_feed(body)
+          json = body[/\A\s*(?:[a-zA-Z_$][\w$]*\.)*[a-zA-Z_$][\w$]*\s*\((.*)\)\s*;?\s*\z/m, 1]
+          raise FeedError, 'Random selection feed response is not valid JSONP' unless json
+
+          JSON.parse(json, symbolize_names: true)
+        rescue JSON::ParserError
+          raise FeedError, 'Random selection feed response contains invalid JSON'
         end
 
         def fetch_random_feed
@@ -45,7 +62,10 @@ module Irasutoya
         def read_random_feed(http)
           limit_error = FeedError.new("Random selection feed response exceeds the #{MAX_FEED_BYTES}-byte limit")
           http.request_get(random_api_path, 'Accept-Encoding' => 'identity') do |response|
-            response.value
+            unless response.is_a?(Net::HTTPSuccess)
+              raise FeedError, "Random selection feed request failed (HTTP #{response.code})"
+            end
+
             return ResponseBody.read(response, http, max_bytes: MAX_FEED_BYTES, limit_error: limit_error)
           end
         end
