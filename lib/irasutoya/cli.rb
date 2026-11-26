@@ -3,9 +3,11 @@
 require 'open-uri'
 require 'tempfile'
 require 'timeout'
+require 'irasutoya/cli/detail_page_fetch'
 require 'irasutoya/cli/https_url'
 require 'irasutoya/cli/image_transfer'
 require 'irasutoya/cli/page_url'
+require 'irasutoya/cli/preview_conversion'
 require 'irasutoya/cli/terminal_output'
 require 'irasutoya/cli/version'
 require 'thor'
@@ -14,6 +16,11 @@ module Irasutoya
   module Cli
     class Runner < Thor
       JSONL_OPTION = { type: :boolean, desc: 'Print one JSON object per result' }.freeze
+
+      # Matches Irasutoya::Cli::Preview::RENDERER_CACHE_KEY. Set directly on Thread.current
+      # (instead of calling into Preview) so this does not force-load `terminal_image` for
+      # commands that never preview an image.
+      RENDERER_CACHE_KEY = :irasutoya_preview_renderer
 
       def self.exit_on_failure?
         true
@@ -41,26 +48,12 @@ module Irasutoya
       method_option :input, type: :string, banner: 'FILE', desc: 'Read page URLs from FILE (use - for stdin)'
       method_option :output, type: :string, required: true, banner: 'DIR'
       def download(page_url = nil)
-        require 'irasutoya/cli/download'
-        require 'irasutoya/cli/download_list'
+        require 'irasutoya/cli/download_command'
 
-        input = options[:input]
-        directory = options[:output]
-        raise Thor::Error, 'Provide an output directory with --output.' if directory.empty?
-        raise Thor::Error, 'Provide either PAGE_URL or --input FILE.' if page_url.nil? == input.nil?
-
-        return download_page(page_url, directory) unless input
-
-        DownloadList.new(input).each { |url| download_page(url, directory) }
+        DownloadCommand.new(page_url, options[:input], options[:output]).run { |path| say "Saved: #{path}" }
       end
 
       private
-
-      def download_page(url, directory)
-        Download.new(url, directory).save { |path| say "Saved: #{path}" }
-      rescue Download::SaveError => e
-        raise Thor::Error, e.message
-      end
 
       def display_search_results(query)
         Illustration.search(query:)
@@ -73,7 +66,7 @@ module Irasutoya
       def fetch_result(link)
         url = PageUrl.parse(link.show_url).to_s
         link = Irasutoya::IrasutoLink.new(title: link.title, show_url: url) if url != link.show_url
-        link.extend(HtmlPage).fetch_irasuto
+        DetailPageFetch.fetch(link)
       rescue HtmlPage::Error, OpenURI::HTTPError, Timeout::Error, URI::InvalidURIError => e
         warn "warn: Could not fetch result page #{escape_controls(link.show_url)}: #{escape_controls(e.message)}"
         nil
@@ -122,11 +115,19 @@ module Irasutoya
         say "warn: Could not preview #{escape_controls(image_url)}: #{escape_controls(e.message)}", :yellow
       end
 
-      def with_preview_sessions
+      def with_preview_sessions(&block)
         ImageTransfer.with_sessions do |transfer|
           @preview_transfer = transfer
-          yield
+          PreviewConversion.with_command_cache { with_renderer_cache(&block) }
         end
+      end
+
+      def with_renderer_cache
+        previous = Thread.current[RENDERER_CACHE_KEY]
+        Thread.current[RENDERER_CACHE_KEY] = {}
+        yield
+      ensure
+        Thread.current[RENDERER_CACHE_KEY] = previous
       end
     end
   end
