@@ -102,6 +102,48 @@ RSpec.describe 'ANSI image previews' do
       end
     end
 
+    it 'reuses a successful ImageMagick probe across several previews in the same command' do
+      gif_urls = %w[http://example.com/first.gif http://example.com/second.gif]
+      with_converter("STDOUT.binmode; STDOUT.write(#{valid_png.dump})") do |_pid_file, version_calls_file|
+        render_previews(gif_urls, [gif, gif])
+
+        expect(File.read(version_calls_file)).to eq('1')
+      end
+    end
+
+    it 'reuses the renderer detection across several previews in the same command' do
+      allow(TerminalImage).to receive(:which).and_call_original
+
+      render_previews(urls, [valid_png, valid_png])
+
+      expect(TerminalImage).to have_received(:which).with('img2sixel').once
+    end
+
+    it 'discovers another available converter after the selected executable disappears' do
+      gif_urls = %w[http://example.com/first.gif http://example.com/second.gif]
+      with_converter('abort', remove_after_version: true) do
+        Dir.mktmpdir do |dir|
+          fallback = File.join(dir, 'convert')
+          File.write(fallback, <<~RUBY)
+            #!#{RbConfig.ruby}
+            abort unless ARGV == ['-version'] || ARGV.last(2) == ['-[0]', 'png:-']
+            if ARGV == ['-version']
+              puts 'ImageMagick test converter'
+              exit
+            end
+            abort unless STDIN.binmode.read == #{gif.dump}.b
+            STDOUT.binmode
+            STDOUT.write(#{valid_png.dump})
+          RUBY
+          File.chmod(0o755, fallback)
+          allow(TerminalImage).to receive(:which).with('convert').and_return(fallback)
+
+          warning = "warn: Could not preview #{gif_urls.first}: ImageMagick could not convert the image to PNG"
+          render_previews(gif_urls, [gif, gif], warning:)
+        end
+      end
+    end
+
     it 'renders an interlaced PNG and accepts compressed metadata within the budget' do
       interlaced = ChunkyPNG::Image.new(8, 8, image[0, 0])
       datastream = interlaced.to_datastream(interlace: true)
@@ -236,10 +278,13 @@ RSpec.describe 'ANSI image previews' do
       Dir.mktmpdir do |dir|
         converter = File.join(dir, 'magick')
         pid_file = File.join(dir, 'converter.pid')
+        version_calls_file = File.join(dir, 'version_calls')
         File.write(converter, <<~RUBY)
           #!#{RbConfig.ruby}
           abort unless ARGV == ['-version'] || ARGV.last(2) == ['-[0]', 'png:-']
           if ARGV == ['-version']
+            calls = File.exist?(#{version_calls_file.dump}) ? Integer(File.read(#{version_calls_file.dump})) : 0
+            File.write(#{version_calls_file.dump}, calls + 1)
             puts 'ImageMagick test converter'
             File.unlink(__FILE__) if #{remove_after_version}
             exit
@@ -251,7 +296,7 @@ RSpec.describe 'ANSI image previews' do
         File.chmod(0o755, converter)
         allow(TerminalImage).to receive(:which).and_call_original
         allow(TerminalImage).to receive(:which).with('magick').and_return(converter)
-        yield pid_file
+        yield pid_file, version_calls_file
       end
     end
 
@@ -262,13 +307,17 @@ RSpec.describe 'ANSI image previews' do
     end
 
     def expect_preview_recovery(rejected_image, message = 'PNG decompression exceeds the preview limit')
+      render_previews(urls, [rejected_image, valid_png], warning: "warn: Could not preview #{urls.first}: #{message}")
+    end
+
+    def render_previews(urls, images, warning: nil)
       result = Irasutoya::Irasuto.new(url: 'http://example.com/', title: 'Preview', description: '', image_urls: urls)
       allow(Irasutoya::Cli::Illustration).to receive(:random).and_return(result)
       http = instance_double(Net::HTTP)
       expect(Net::HTTP).to receive(:start).with('example.com', 443, use_ssl: true, max_retries: 0,
                                               ignore_eof: false).once.and_return(http)
       expect(http).to receive(:finish).once
-      urls.zip([rejected_image, valid_png]).each do |url, data|
+      urls.zip(images).each do |url, data|
         response = Net::HTTPOK.new('1.1', '200', 'OK')
         allow(response).to receive(:read_body).and_yield(data)
         allow(http).to receive(:request_get).with(URI.parse(url).request_uri, 'Accept-Encoding' => 'identity')
@@ -277,12 +326,13 @@ RSpec.describe 'ANSI image previews' do
 
       runner = Irasutoya::Cli::Runner.new([], {}, shell: Thor::Shell::Basic.new)
       allow(runner).to receive(:say).and_call_original
-      expect(runner).to receive(:say).with(/\Awarn:/, :yellow).once.and_call_original
-      warning = "warn: Could not preview #{urls.first}: #{message}"
+      expect(runner).to receive(:say).with(/\Awarn:/, :yellow).once.and_call_original if warning
+      pixel = '\e\[38;2;12;34;56m'
+      pattern = warning ? /#{Regexp.escape(warning)}\n#{pixel}/ : /#{pixel}.*\n.*#{pixel}/m
       expect do
         allow($stdout).to receive(:tty?).and_return(true)
         runner.random
-      end.to output(/#{Regexp.escape(warning)}\n\e\[38;2;12;34;56m/).to_stdout
+      end.to output(pattern).to_stdout
     end
   end
 end

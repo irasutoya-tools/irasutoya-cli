@@ -2,7 +2,8 @@
 
 These examples use the current checkout. Follow the
 [checkout setup instructions](../README.md#download-images-from-a-checkout)
-before running them.
+before running them, or see [Getting started](getting-started.md) for a
+guided first walkthrough.
 
 ## Search and browse illustrations
 
@@ -11,7 +12,7 @@ bundle exec exe/irasutoya search '白い猫'
 bundle exec exe/irasutoya random
 ```
 
-`search QUERY` takes one query argument. Quote a query that contains spaces.
+`search {query}` takes one query argument. Quote a query that contains spaces.
 The command attempts to fetch up to three result pages, each of which can
 contain multiple images. Search and random use the same page URL rules as
 `download`: URLs must use HTTP or HTTPS, have the host `irasutoya.com` or
@@ -69,10 +70,18 @@ random result. The command accepts HTTP or HTTPS illustration page URLs on
 URLs to HTTPS before downloading and rejects redirects to HTTP.
 
 `--output DIR` is required. The command creates the directory if needed,
-saves all images on the page, and prints a `Saved:` line for each file.
+saves images on the page in order, and prints a `Saved:` line for each file.
 When a filename is already taken, the command adds a suffix such as
 `-1` before the extension. If the page contains no images, the command
 reports an error.
+
+The command recognizes PNG, JPEG, GIF, and WebP images by their file
+signature, independent of the URL's extension, and saves each file with the
+extension that matches its detected format (for example, a PNG served from a
+URL ending in `.jpg` is saved with a `.png` extension). If an image on the
+page is in another format, such as SVG, the command reports an error and
+stops downloading from that page. Images already saved from earlier in the
+page are kept.
 
 ### Download from a URL list
 

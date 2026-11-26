@@ -7,8 +7,13 @@ require 'irasutoya/cli/preview_png'
 module Irasutoya
   module Cli
     module Preview
+      # Shared with Runner#with_renderer_cache in lib/irasutoya/cli.rb, which sets up this
+      # cache once per command without needing to require this file (and its `terminal_image`
+      # dependency) for commands that never preview an image.
+      RENDERER_CACHE_KEY = :irasutoya_preview_renderer
+
       def self.show(file)
-        if ENV.fetch('TERM_PROGRAM', nil) == 'iTerm.app' || TerminalImage.send(:which, 'img2sixel')
+        if terminal_image_renderer?
           TerminalImage.show(file)
         else
           show_ansi(file)
@@ -26,6 +31,20 @@ module Irasutoya
         end
       end
       private_class_method :show_ansi
+
+      def self.terminal_image_renderer?
+        cache = Thread.current[RENDERER_CACHE_KEY]
+        return detect_terminal_image_renderer unless cache
+        return cache[:terminal_image] if cache.key?(:terminal_image)
+
+        cache[:terminal_image] = detect_terminal_image_renderer
+      end
+      private_class_method :terminal_image_renderer?
+
+      def self.detect_terminal_image_renderer
+        ENV.fetch('TERM_PROGRAM', nil) == 'iTerm.app' || TerminalImage.send(:which, 'img2sixel')
+      end
+      private_class_method :detect_terminal_image_renderer
     end
   end
 end

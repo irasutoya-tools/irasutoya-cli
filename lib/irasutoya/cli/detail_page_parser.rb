@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require 'irasutoya'
-
 module Irasutoya
   module Cli
     module DetailPageParser
@@ -11,6 +9,4 @@ module Irasutoya
       end
     end
   end
-
-  IrasutoLink.prepend(Cli::DetailPageParser)
 end

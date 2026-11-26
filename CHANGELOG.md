@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.0.2](https://github.com/irasutoya-tools/irasutoya-cli/compare/v1.0.1...v1.0.2) (2026-11-25)
+
+- Required `terminal_image ~> 1.1`.
+
 ## [1.0.1](https://github.com/irasutoya-tools/irasutoya-cli/compare/v1.0.0...v1.0.1) (2026-02-03)
 
 - Constrained the gem's runtime dependencies to `irasutoya ~> 2.0` and
@@ -11,7 +15,7 @@
 
 ## [0.2.0](https://github.com/irasutoya-tools/irasutoya-cli/compare/v0.1.0...v0.2.0) (2020-11-06)
 
-- Added the `search QUERY` command, which fetches up to three matching
+- Added the `search {query}` command, which fetches up to three matching
   illustration pages.
 - Listed and previewed every image on a result page for both `search` and
   `random`.
