@@ -55,10 +55,12 @@ module Irasutoya
       desc 'download [PAGE_URL]', 'Saves all images from an illustration page or a list of pages'
       method_option :input, type: :string, banner: 'FILE', desc: 'Read page URLs from FILE (use - for stdin)'
       method_option :output, type: :string, required: true, banner: 'DIR'
+      method_option :metadata, type: :boolean, desc: 'Save a JSON file with the page metadata and image filenames'
       def download(page_url = nil)
         require 'irasutoya/cli/download_command'
 
-        DownloadCommand.new(page_url, options[:input], options[:output]).run { |path| say "Saved: #{path}" }
+        DownloadCommand.new(page_url, options[:input], options[:output], metadata: options[:metadata])
+                       .run { |path| say "Saved: #{path}" }
       end
     end
   end

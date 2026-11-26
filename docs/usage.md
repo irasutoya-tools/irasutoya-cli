@@ -104,6 +104,20 @@ page is in another format, such as SVG, the command reports an error and
 stops downloading from that page. Images already saved from earlier in the
 page are kept.
 
+### Save illustration metadata
+
+Add `--metadata` to also save a JSON file with the page URL, title,
+description, and the filenames of the images saved from that page, reusing
+the illustration already fetched to locate the images (no extra request).
+The file is named after the page (for example `cat.json` for a page saved
+as `cat.png`) and gets a numeric suffix such as `-1` if that name is
+already taken, the same way image filenames do. The file is only written
+after every image on the page saves successfully.
+
+```sh
+bundle exec exe/irasutoya download 'PAGE_URL' --output ./images --metadata
+```
+
 ### Download from a URL list
 
 Use `--input FILE` in place of `PAGE_URL` to download a saved list with
