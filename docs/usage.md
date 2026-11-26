@@ -12,7 +12,7 @@ bundle exec exe/irasutoya search '白い猫'
 bundle exec exe/irasutoya random
 ```
 
-`search QUERY` takes one query argument. Quote a query that contains spaces.
+`search {query}` takes one query argument. Quote a query that contains spaces.
 The command attempts to fetch up to three result pages, each of which can
 contain multiple images. Search and random use the same page URL rules as
 `download`: URLs must use HTTP or HTTPS, have the host `irasutoya.com` or
