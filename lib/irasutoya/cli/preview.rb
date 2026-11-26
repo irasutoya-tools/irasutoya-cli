@@ -3,6 +3,7 @@
 require 'terminal_image'
 require 'irasutoya/cli/preview_conversion'
 require 'irasutoya/cli/preview_png'
+require 'irasutoya/cli/process_capture'
 
 module Irasutoya
   module Cli
@@ -11,12 +12,15 @@ module Irasutoya
       # cache once per command without needing to require this file (and its `terminal_image`
       # dependency) for commands that never preview an image.
       RENDERER_CACHE_KEY = :irasutoya_preview_renderer
+      SIXEL_TIMEOUT = 10
+      MAX_SIXEL_BYTES = 32 * 1024 * 1024
 
       def self.show(file)
-        if terminal_image_renderer?
-          TerminalImage.show(file)
-        else
-          show_ansi(file)
+        renderer_choice = renderer
+        case renderer_choice
+        when :iterm2 then TerminalImage.show(file)
+        when :ansi then show_ansi(file)
+        else show_sixel(file, renderer_choice)
         end
       end
 
@@ -32,19 +36,36 @@ module Irasutoya
       end
       private_class_method :show_ansi
 
-      def self.terminal_image_renderer?
+      # Feeds the file to img2sixel over its standard input (not a shell-interpolated path) so
+      # a TMPDIR containing spaces or shell metacharacters cannot break the command line, and
+      # raises instead of printing a blank preview when the subprocess exits unsuccessfully.
+      def self.show_sixel(file, command)
+        output, status = PreviewConversion.with_input(file) do |input|
+          ProcessCapture.new(SIXEL_TIMEOUT).capture([command], MAX_SIXEL_BYTES, in: input)
+        end
+        raise TerminalImage::UnsupportedTerminal, 'img2sixel could not render the preview' unless status.success?
+
+        puts output
+      rescue SystemCallError
+        raise TerminalImage::UnsupportedTerminal, 'img2sixel could not render the preview'
+      end
+      private_class_method :show_sixel
+
+      def self.renderer
         cache = Thread.current[RENDERER_CACHE_KEY]
-        return detect_terminal_image_renderer unless cache
-        return cache[:terminal_image] if cache.key?(:terminal_image)
+        return detect_renderer unless cache
+        return cache[:renderer] if cache.key?(:renderer)
 
-        cache[:terminal_image] = detect_terminal_image_renderer
+        cache[:renderer] = detect_renderer
       end
-      private_class_method :terminal_image_renderer?
+      private_class_method :renderer
 
-      def self.detect_terminal_image_renderer
-        ENV.fetch('TERM_PROGRAM', nil) == 'iTerm.app' || TerminalImage.send(:which, 'img2sixel')
+      def self.detect_renderer
+        return :iterm2 if ENV.fetch('TERM_PROGRAM', nil) == 'iTerm.app'
+
+        TerminalImage.send(:which, 'img2sixel') || :ansi
       end
-      private_class_method :detect_terminal_image_renderer
+      private_class_method :detect_renderer
     end
   end
 end

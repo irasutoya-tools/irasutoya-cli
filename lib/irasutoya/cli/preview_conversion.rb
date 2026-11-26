@@ -36,6 +36,16 @@ module Irasutoya
         convert(command, file)
       end
 
+      def self.with_input(file)
+        file.rewind
+        return yield file.to_io if file.respond_to?(:to_io)
+
+        Tempfile.create(binmode: true) do |input|
+          IO.copy_stream(file, input)
+          yield input.tap(&:rewind)
+        end
+      end
+
       class << self
         private
 
@@ -73,16 +83,6 @@ module Irasutoya
         rescue SystemCallError
           invalidate_image_magick_command!
           raise TerminalImage::UnsupportedFormat, CONVERSION_FAILED
-        end
-
-        def with_input(file)
-          file.rewind
-          return yield file.to_io if file.respond_to?(:to_io)
-
-          Tempfile.create(binmode: true) do |input|
-            IO.copy_stream(file, input)
-            yield input.tap(&:rewind)
-          end
         end
 
         def capture(args, max_bytes, **)
