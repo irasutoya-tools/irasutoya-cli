@@ -905,6 +905,18 @@ RSpec.describe 'irasutoya download' do
       expect(JSON.parse(File.read(File.join(directory, 'cat-1.json')))['image_filenames'])
         .to eq(%w[cat.png cat-1.png])
     end
+
+    it 'reports a metadata write failure after keeping the saved images' do
+      allow(Tempfile).to receive(:create).and_call_original
+      allow(Tempfile).to receive(:create).with('.irasutoya-', directory).and_raise(Errno::ENOSPC)
+      paths = %w[cat.png cat-1.png].map { |name| File.join(directory, name) }
+
+      expect do
+        expect { run_download(page_url, '--metadata') }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      end.to output("Could not save metadata in #{directory}: #{Errno::ENOSPC.new.message}\n").to_stderr
+      expect(paths.map { |path| File.binread(path) }).to eq(image_data)
+      expect(Dir.children(directory)).to match_array(%w[cat.png cat-1.png])
+    end
   end
 
   def run_list(*args)

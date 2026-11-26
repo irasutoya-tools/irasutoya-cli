@@ -186,15 +186,15 @@ module Irasutoya
         @metadata = metadata
       end
 
-      def save(transfer, &block)
+      def save(transfer, &)
         illustration = fetch_illustration
         images = illustration.image_urls
         raise SaveError, "No images found on #{@page_url}" if images.empty?
 
         prepare_directory
         next_suffixes = Hash.new(0)
-        saved_paths = images.map { |url| save_image(url, next_suffixes, transfer, &block) }
-        save_metadata(illustration, saved_paths, &block) if @metadata
+        saved_paths = images.map { |url| save_image(url, next_suffixes, transfer, &) }
+        save_metadata(illustration, saved_paths, &) if @metadata
       end
 
       private
@@ -218,9 +218,9 @@ module Irasutoya
         raise SaveError, TerminalOutput.escape_controls(message)
       end
 
-      def save_image(url, next_suffixes, transfer, &block)
+      def save_image(url, next_suffixes, transfer, &)
         uri = HttpsUrl.parse(url)
-        download_and_link_image(uri, next_suffixes, transfer, &block)
+        download_and_link_image(uri, next_suffixes, transfer, &)
       rescue URI::InvalidURIError => e
         raise SaveError, TerminalOutput.escape_controls("Could not download #{url}: #{e.message}")
       rescue ImageTransfer::ResponseError => e
