@@ -7,9 +7,9 @@ require 'irasutoya/cli/preview_png'
 module Irasutoya
   module Cli
     module Preview
-      # Shared with Runner#with_renderer_cache in lib/irasutoya/cli.rb, which sets up this
-      # cache once per command without needing to require this file (and its `terminal_image`
-      # dependency) for commands that never preview an image.
+      # Shared with ResultPresenter#with_renderer_cache in lib/irasutoya/cli/result_presenter.rb,
+      # which sets up this cache once per command without needing to require this file (and its
+      # `terminal_image` dependency) for commands that never preview an image.
       RENDERER_CACHE_KEY = :irasutoya_preview_renderer
 
       def self.show(file)
