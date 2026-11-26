@@ -8,6 +8,7 @@ require 'irasutoya/cli/html_page'
 require 'irasutoya/cli/page_url'
 require 'irasutoya/cli/terminal_output'
 require 'irasutoya/cli/image_transfer'
+require 'json'
 require 'tempfile'
 
 module Irasutoya
@@ -134,18 +135,21 @@ module Irasutoya
       end
       private_constant :ImageLink
 
-      def initialize(page_url, directory)
+      def initialize(page_url, directory, metadata: false)
         @page_url = page_url
         @directory = directory
+        @metadata = metadata
       end
 
-      def save(transfer, &)
-        images = page_images
+      def save(transfer, &block)
+        illustration = fetch_illustration
+        images = illustration.image_urls
         raise SaveError, "No images found on #{@page_url}" if images.empty?
 
         prepare_directory
         next_suffixes = Hash.new(0)
-        images.each { |url| save_image(url, next_suffixes, transfer, &) }
+        saved_paths = images.map { |url| save_image(url, next_suffixes, transfer, &block) }
+        save_metadata(illustration, saved_paths, &block) if @metadata
       end
 
       private
@@ -157,11 +161,11 @@ module Irasutoya
         raise SaveError, TerminalOutput.escape_controls("Could not create output directory #{@directory}: #{e.message}")
       end
 
-      def page_images
-        uri = PageUrl.parse(@page_url)
-        link = Irasutoya::IrasutoLink.new(title: nil, show_url: uri.to_s)
+      def fetch_illustration
+        @page_uri = PageUrl.parse(@page_url)
+        link = Irasutoya::IrasutoLink.new(title: nil, show_url: @page_uri.to_s)
 
-        DetailPageFetch.fetch(link).image_urls
+        DetailPageFetch.fetch(link)
       rescue URI::InvalidURIError
         raise SaveError, 'Provide an Irasutoya illustration page URL printed by search or random.'
       rescue HtmlPage::Error, OpenURI::HTTPError => e
@@ -171,14 +175,53 @@ module Irasutoya
 
       def save_image(url, next_suffixes, transfer)
         uri = HttpsUrl.parse(url)
+        path = nil
         with_temporary_image do |file|
           copy_image(uri, file, transfer)
-          yield link_image(file.path, file.image_filename(uri), next_suffixes)
+          path = link_image(file.path, file.image_filename(uri), next_suffixes)
+          yield path
         end
+        path
       rescue URI::InvalidURIError => e
         raise SaveError, TerminalOutput.escape_controls("Could not download #{url}: #{e.message}")
       rescue ImageTransfer::ResponseError => e
         raise SaveError, "Could not fetch image #{url}: #{e.message}"
+      end
+
+      def save_metadata(illustration, saved_paths)
+        content = metadata_json(illustration, saved_paths)
+        path = write_metadata_file(content)
+        yield path
+      end
+
+      def metadata_json(illustration, saved_paths)
+        JSON.generate(
+          page_url: illustration.url,
+          title: illustration.title,
+          description: illustration.description,
+          image_filenames: saved_paths.map { |path| File.basename(path) }
+        )
+      end
+
+      def write_metadata_file(content)
+        Tempfile.create('.irasutoya-', @directory) do |file|
+          file.write(content)
+          file.flush
+          link_metadata_file(file.path)
+        end
+      rescue SystemCallError, IOError => e
+        raise SaveError, TerminalOutput.escape_controls("Could not save metadata in #{@directory}: #{e.message}")
+      end
+
+      def link_metadata_file(source)
+        stem = File.basename(@page_uri.path, '.html')
+        index = 0
+        loop do
+          ending = index.zero? ? '.json' : "-#{index}.json"
+          return image_link.link(source, stem, ending)
+        rescue Errno::EEXIST
+          index += 1
+        end
       end
 
       def with_temporary_image
