@@ -55,6 +55,19 @@ RSpec.describe Irasutoya::Cli::HtmlPage do
       .and output("warn: Could not fetch result page #{page_url}: HTML response exceeds the 256-byte limit\n").to_stderr
   end
 
+  it 'warns once when a result host cannot be resolved and fetches the next result' do
+    missing_host = 'irasutoya.com'
+    missing_url = "https://#{missing_host}/cat.html"
+    list = search_html.sub(page_url, missing_url) + search_html.sub('/cat.html', '/next.html')
+    allow(respond('/search?q=cat')).to receive(:read_body).and_yield(list)
+    expect(Net::HTTP).to receive(:start).with(missing_host, 443, any_args).once.and_raise(SocketError)
+    allow(respond('/next.html')).to receive(:read_body).and_yield(detail)
+
+    expect { run_search }
+      .to output(satisfy { |stdout| result_urls(stdout) == ["https://#{host}/next.html"] }).to_stdout
+      .and output("warn: Could not fetch result page #{missing_url}: Could not resolve host for #{missing_url}\n").to_stderr
+  end
+
   it 'reports an oversized download page before parsing or transferring images' do
     stream_oversized_detail
     expect(Nokogiri::HTML).not_to receive(:parse)
@@ -213,20 +226,31 @@ RSpec.describe Irasutoya::Cli::HtmlPage do
   end
 
   %w[search random download].each do |command|
-    it "reports a read timeout from #{command} as a CLI error" do
-      args, path = case command
-                   when 'search' then [%w[search cat], '/search?q=cat']
-                   when 'random' then [%w[random], '/cat.html']
-                   when 'download' then [['download', page_url, '--output', 'unused'], '/cat.html']
-                   end
-      allow(Irasutoya::Cli::Illustration).to receive(:random_url).and_return(page_url) if command == 'random'
-      allow(respond(path)).to receive(:read_body).and_raise(Net::ReadTimeout)
+    describe "HTML retrieval in #{command}" do
+      let(:args) do
+        case command
+        when 'search' then %w[search cat]
+        when 'random' then %w[random]
+        when 'download' then ['download', page_url, '--output', 'unused']
+        end
+      end
+      let(:path) { command == 'search' ? '/search?q=cat' : '/cat.html' }
 
-      message = "HTML request timed out for https://#{host}#{path}"
-      message = "Could not fetch illustration page #{page_url}: #{message}" if command == 'download'
-      expect do
-        expect { Irasutoya::Cli::Runner.start(args) }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
-      end.to output("#{message}\n").to_stderr.and output('').to_stdout
+      before do
+        allow(Irasutoya::Cli::Illustration).to receive(:random_url).and_return(page_url) if command == 'random'
+      end
+
+      it 'reports a read timeout as a CLI error' do
+        allow(respond(path)).to receive(:read_body).and_raise(Net::ReadTimeout)
+
+        expect_cli_error(command, args, "HTML request timed out for https://#{host}#{path}")
+      end
+
+      it 'reports a DNS failure as a CLI error' do
+        expect(Net::HTTP).to receive(:start).with(host, 443, any_args).once.and_raise(SocketError)
+
+        expect_cli_error(command, args, "Could not resolve host for https://#{host}#{path}")
+      end
     end
   end
 
@@ -304,6 +328,13 @@ RSpec.describe Irasutoya::Cli::HtmlPage do
 
   def run_search
     Irasutoya::Cli::Runner.start(%w[search cat --jsonl])
+  end
+
+  def expect_cli_error(command, args, message)
+    message = "Could not fetch illustration page #{page_url}: #{message}" if command == 'download'
+    expect do
+      expect { Irasutoya::Cli::Runner.start(args) }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+    end.to output("#{message}\n").to_stderr.and output('').to_stdout
   end
 
   def result_urls(stdout)
