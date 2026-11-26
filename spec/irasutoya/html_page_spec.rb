@@ -61,7 +61,7 @@ RSpec.describe Irasutoya::Cli::HtmlPage do
     expect(Irasutoya::Cli::ImageTransfer).not_to receive(:fetch)
 
     expect { Irasutoya::Cli::ImageTransfer.with_sessions { |transfer| Irasutoya::Cli::Download.new(page_url, 'unused').save(transfer) } }
-      .to raise_error(Thor::Error, "Could not fetch illustration page #{page_url}: HTML response exceeds the 256-byte limit")
+      .to raise_error(Irasutoya::Cli::Download::SaveError, "Could not fetch illustration page #{page_url}: HTML response exceeds the 256-byte limit")
   end
 
   it 'reports an oversized random illustration page' do

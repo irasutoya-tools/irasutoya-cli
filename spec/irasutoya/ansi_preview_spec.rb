@@ -111,6 +111,14 @@ RSpec.describe 'ANSI image previews' do
       end
     end
 
+    it 'reuses the renderer detection across several previews in the same command' do
+      allow(TerminalImage).to receive(:which).and_call_original
+
+      render_previews(urls, [valid_png, valid_png])
+
+      expect(TerminalImage).to have_received(:which).with('img2sixel').once
+    end
+
     it 'discovers another available converter after the selected executable disappears' do
       gif_urls = %w[http://example.com/first.gif http://example.com/second.gif]
       with_converter('abort', remove_after_version: true) do
