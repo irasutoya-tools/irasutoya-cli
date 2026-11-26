@@ -39,7 +39,7 @@ module Irasutoya
         end
 
         def feed_count(feed)
-          Integer(feed.dig(:feed, :"openSearch$totalResults", :"$t").to_s, 10)
+          Integer(feed.dig(:feed, :'openSearch$totalResults', :$t).to_s, 10)
         rescue TypeError, ArgumentError
           raise FeedError, 'Random selection feed response has no usable total result count'
         end

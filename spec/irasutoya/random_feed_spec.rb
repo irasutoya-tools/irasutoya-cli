@@ -121,7 +121,7 @@ RSpec.describe 'Random selection feed' do
 
   def stub_successful_selection(count: 1)
     jsonp = %({"feed":{"openSearch$totalResults":{"$t":"#{count}"},)\
-            %({"entry":[{"link":[{"rel":"self"},{"rel":"alternate","href":"#{feed_url}"}]}]}})
+            %("entry":[{"link":[{"rel":"self"},{"rel":"alternate","href":"#{feed_url}"}]}]}})
     body = "gdata.io.handleScriptLoaded(\n#{jsonp}\n);".ljust(feed_limit)
     feed['content-length'] = body.bytesize.to_s
     expect(feed).to receive(:read_body).and_yield(body[0, 32]).and_yield(body[32..])
