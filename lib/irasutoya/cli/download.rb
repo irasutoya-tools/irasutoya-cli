@@ -2,13 +2,13 @@
 
 require 'etc'
 require 'fileutils'
-require 'irasutoya/cli/detail_page_parser'
+require 'irasutoya'
+require 'irasutoya/cli/detail_page_fetch'
 require 'irasutoya/cli/html_page'
 require 'irasutoya/cli/page_url'
 require 'irasutoya/cli/terminal_output'
 require 'irasutoya/cli/image_transfer'
 require 'tempfile'
-require 'thor'
 
 module Irasutoya
   module Cli
@@ -139,15 +139,13 @@ module Irasutoya
         @directory = directory
       end
 
-      def save(&report_saved)
+      def save(transfer, &)
         images = page_images
-        raise Thor::Error, "No images found on #{@page_url}" if images.empty?
+        raise SaveError, "No images found on #{@page_url}" if images.empty?
 
         prepare_directory
         next_suffixes = Hash.new(0)
-        ImageTransfer.with_sessions do |transfer|
-          images.each { |url| save_image(url, next_suffixes, transfer, &report_saved) }
-        end
+        images.each { |url| save_image(url, next_suffixes, transfer, &) }
       end
 
       private
@@ -161,13 +159,14 @@ module Irasutoya
 
       def page_images
         uri = PageUrl.parse(@page_url)
+        link = Irasutoya::IrasutoLink.new(title: nil, show_url: uri.to_s)
 
-        Irasutoya::IrasutoLink.new(title: nil, show_url: uri.to_s).extend(HtmlPage).fetch_irasuto.image_urls
+        DetailPageFetch.fetch(link).image_urls
       rescue URI::InvalidURIError
-        raise Thor::Error, 'Provide an Irasutoya illustration page URL printed by search or random.'
+        raise SaveError, 'Provide an Irasutoya illustration page URL printed by search or random.'
       rescue HtmlPage::Error, OpenURI::HTTPError => e
         message = "Could not fetch illustration page #{@page_url}: #{e.message}"
-        raise Thor::Error, TerminalOutput.escape_controls(message)
+        raise SaveError, TerminalOutput.escape_controls(message)
       end
 
       def save_image(url, next_suffixes, transfer)
@@ -177,9 +176,9 @@ module Irasutoya
           yield link_image(file.path, file.image_filename(uri), next_suffixes)
         end
       rescue URI::InvalidURIError => e
-        raise Thor::Error, TerminalOutput.escape_controls("Could not download #{url}: #{e.message}")
+        raise SaveError, TerminalOutput.escape_controls("Could not download #{url}: #{e.message}")
       rescue ImageTransfer::ResponseError => e
-        raise Thor::Error, "Could not fetch image #{url}: #{e.message}"
+        raise SaveError, "Could not fetch image #{url}: #{e.message}"
       end
 
       def with_temporary_image
@@ -201,13 +200,13 @@ module Irasutoya
       def copy_image(uri, destination, transfer)
         transfer.copy(uri, destination, max_bytes: ImageTransfer::MAX_IMAGE_BYTES)
       rescue ImageTransfer::SizeLimitExceededError
-        raise Thor::Error, "Image download exceeds the #{ImageTransfer::MAX_IMAGE_BYTES}-byte limit"
+        raise SaveError, "Image download exceeds the #{ImageTransfer::MAX_IMAGE_BYTES}-byte limit"
       rescue ImageTransfer::IncompleteBodyError => e
-        raise Thor::Error, "Incomplete image download from #{uri}: #{e.message}"
+        raise SaveError, "Incomplete image download from #{uri}: #{e.message}"
       rescue ImageTransfer::TooManyRedirectsError
-        raise Thor::Error, 'Too many image download redirects'
+        raise SaveError, 'Too many image download redirects'
       rescue ImageTransfer::InsecureRedirectError
-        raise Thor::Error, 'Image download redirect must use HTTPS'
+        raise SaveError, 'Image download redirect must use HTTPS'
       end
 
       def link_image(source, filename, next_suffixes)

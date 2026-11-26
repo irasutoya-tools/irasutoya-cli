@@ -1,7 +1,8 @@
 # frozen_string_literal: true
 
 require 'json'
-require 'irasutoya/cli/detail_page_parser'
+require 'irasutoya'
+require 'irasutoya/cli/detail_page_fetch'
 require 'irasutoya/cli/html_page'
 require 'irasutoya/cli/http_deadline'
 require 'irasutoya/cli/page_url'
@@ -10,7 +11,6 @@ module Irasutoya
   module Cli
     class Illustration < Irasutoya::Irasuto
       extend HtmlPage
-      extend DetailPageParser
 
       FEED_TIMEOUT = 60
       MAX_FEED_BYTES = 64 * 1024
@@ -19,7 +19,7 @@ module Irasutoya
 
       def self.random
         url = PageUrl.parse(random_url).to_s
-        Irasutoya::IrasutoLink.new(title: nil, show_url: url).extend(HtmlPage).fetch_irasuto
+        DetailPageFetch.fetch(Irasutoya::IrasutoLink.new(title: nil, show_url: url))
       end
 
       class << self

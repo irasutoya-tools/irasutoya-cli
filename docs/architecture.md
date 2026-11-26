@@ -15,12 +15,18 @@ their arguments and options, and the output for search and random results.
   terminal. [`Preview`](../lib/irasutoya/cli/preview.rb) selects the rendering
   path and uses [`PreviewPNG`](../lib/irasutoya/cli/preview_png.rb) to decode
   PNG data for ANSI rendering.
+- **Downloading** starts in
+  [`DownloadCommand`](../lib/irasutoya/cli/download_command.rb), which
+  validates the `--output`/`--input` options and then either downloads one
+  `PAGE_URL` or iterates a URL list from
+  [`DownloadList`](../lib/irasutoya/cli/download_list.rb). Each page goes to
+  [`Download`](../lib/irasutoya/cli/download.rb), which validates the
+  illustration page URL, fetches its image URLs, and saves each image
+  through a temporary file and a hard link that avoids overwriting an
+  existing file.
 - **Image transfers** for both previews and downloads go through
   [`ImageTransfer`](../lib/irasutoya/cli/image_transfer.rb), which streams
   HTTPS responses and manages connections and redirects.
-  [`Download`](../lib/irasutoya/cli/download.rb) validates the illustration
-  page URL, fetches its image URLs, and saves each image through a temporary
-  file and a hard link that avoids overwriting an existing file.
 
 For examples of how each path is exercised, see the
 [command specs](../spec/irasutoya/cli_spec.rb),

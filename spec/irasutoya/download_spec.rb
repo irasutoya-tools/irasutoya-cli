@@ -750,14 +750,65 @@ RSpec.describe 'irasutoya download' do
     let(:input_path) { File.join(@workspace, 'pages.txt') }
     let(:second_url) { 'https://www.irasutoya.com/2026/01/dog.html' }
 
-    it 'processes file entries in order and avoids filename collisions across pages' do
+    it 'processes file entries in order, reuses one image connection across pages, and avoids filename collisions' do
       second_link = double(fetch_irasuto: double(image_urls: [image_urls.last]))
       allow(Irasutoya::IrasutoLink).to receive(:new).with(title: nil, show_url: second_url).and_return(second_link)
       File.write(input_path, "  #{second_url}\r\n\r\n#{page_url}\n")
       paths = %w[cat.png cat-1.png cat-2.png].map { |name| File.join(directory, name) }
+      expect(Net::HTTP).to receive(:start).with('example.com', 443, use_ssl: true, max_retries: 0,
+                                                ignore_eof: false).once.and_return(http)
+      expect(http).to receive(:finish).once
 
       expect { run_list('--input', input_path) }.to output(paths.map { |path| "Saved: #{path}\n" }.join).to_stdout
       expect(paths.map { |path| File.binread(path) }).to eq([image_data.last, *image_data])
+    end
+
+    it 'reuses one HTML connection across detail pages sharing an origin and saves images in input order' do
+      allow(Irasutoya::IrasutoLink).to receive(:new).with(title: nil, show_url: page_url).and_call_original
+      allow(Irasutoya::IrasutoLink).to receive(:new).with(title: nil, show_url: second_url).and_call_original
+      File.write(input_path, "#{page_url}\n#{second_url}\n")
+      page_http = instance_double(Net::HTTP, started?: true, finish: nil)
+      expect(Net::HTTP).to receive(:start).with('www.irasutoya.com', 443, use_ssl: true, max_retries: 0,
+                                                ignore_eof: false).once.and_return(page_http)
+      expect(page_http).to receive(:finish).once
+      { page_url => image_urls.first, second_url => image_urls.last }.each do |url, image_url|
+        response = Net::HTTPOK.new('1.1', '200', 'OK')
+        response['content-type'] = 'text/html; charset=UTF-8'
+        allow(response).to receive(:read_body).and_yield(%(<div class="entry"><img src="#{image_url}"></div>))
+        expect(page_http).to receive(:request_get).with(URI(url).request_uri, request_headers)
+                                                   .ordered.and_yield(response)
+      end
+      paths = %w[cat.png cat-1.png].map { |name| File.join(directory, name) }
+
+      expect { run_list('--input', input_path) }.to output(paths.map { |path| "Saved: #{path}\n" }.join).to_stdout
+      expect(paths.map { |path| File.binread(path) }).to eq(image_data)
+    end
+
+    it 'discards a failed HTML connection, downloads the next entry, and closes the remaining session on exit' do
+      allow(Irasutoya::IrasutoLink).to receive(:new).with(title: nil, show_url: page_url).and_call_original
+      allow(Irasutoya::IrasutoLink).to receive(:new).with(title: nil, show_url: second_url).and_call_original
+      File.write(input_path, "#{page_url}\n#{second_url}\n")
+
+      failing_http = instance_double(Net::HTTP, started?: true, finish: nil)
+      succeeding_http = instance_double(Net::HTTP, started?: true, finish: nil)
+      expect(Net::HTTP).to receive(:start).with('www.irasutoya.com', 443, use_ssl: true, max_retries: 0,
+                                                ignore_eof: false).twice.and_return(failing_http, succeeding_http)
+      expect(failing_http).to receive(:request_get).with(URI(page_url).request_uri, request_headers)
+                                                   .and_raise(Net::ReadTimeout)
+      expect(failing_http).to receive(:finish).once
+
+      response = Net::HTTPOK.new('1.1', '200', 'OK')
+      response['content-type'] = 'text/html; charset=UTF-8'
+      allow(response).to receive(:read_body).and_yield(%(<div class="entry"><img src="#{image_urls.first}"></div>))
+      expect(succeeding_http).to receive(:request_get).with(URI(second_url).request_uri, request_headers)
+                                                       .and_yield(response)
+      expect(succeeding_http).to receive(:finish).once
+
+      path = File.join(directory, 'cat.png')
+      expect do
+        expect { run_list('--input', input_path) }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      end.to output(/Line 1: Could not download page: .*\nFailed to download 1 page\(s\)\.\n/).to_stderr
+        .and output("Saved: #{path}\n").to_stdout
     end
 
     it 'reads stdin, continues after a partial download, and processes repeated URLs' do
@@ -782,9 +833,9 @@ RSpec.describe 'irasutoya download' do
     [Net::HTTPBadResponse, Net::HTTPHeaderSyntaxError].each do |error_class|
       it "reports #{error_class} with the line number and downloads the next page" do
         allow(Irasutoya::IrasutoLink).to receive(:new).with(title: nil, show_url: second_url).and_call_original
-        page_http = instance_double(Net::HTTP)
+        page_http = instance_double(Net::HTTP, started?: true, finish: nil)
         allow(Net::HTTP).to receive(:start).with('www.irasutoya.com', 443, use_ssl: true, max_retries: 0,
-                                                ignore_eof: false).and_yield(page_http)
+                                                ignore_eof: false).and_return(page_http)
         allow(page_http).to receive(:request_get).with(URI(second_url).request_uri, request_headers)
                                                  .and_raise(error_class, 'Malformed HTTP response')
         File.write(input_path, "\n#{second_url}\n#{page_url}\n")

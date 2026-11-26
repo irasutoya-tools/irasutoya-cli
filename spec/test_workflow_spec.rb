@@ -24,6 +24,12 @@ RSpec.describe 'The test workflow' do
     end
   end
 
+  it 'pins ruby/setup-ruby to a full commit SHA annotated with its release version' do
+    File.readlines(path).grep(%r{uses: ruby/setup-ruby@}).each do |line|
+      expect(line).to match(%r{uses: ruby/setup-ruby@[0-9a-f]{40} # v\d+\.\d+\.\d+})
+    end
+  end
+
   it 'uploads coverage using GitHub OIDC without a Codecov upload token' do
     expect(test_job.fetch('permissions')).to eq('contents' => 'read', 'id-token' => 'write')
     expect(upload_step.fetch('with')).to include('use_oidc' => true, 'files' => 'coverage/coverage.xml')
