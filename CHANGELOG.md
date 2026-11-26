@@ -15,7 +15,7 @@
 
 ## [0.2.0](https://github.com/irasutoya-tools/irasutoya-cli/compare/v0.1.0...v0.2.0) (2020-11-06)
 
-- Added the `search QUERY` command, which fetches up to three matching
+- Added the `search {query}` command, which fetches up to three matching
   illustration pages.
 - Listed and previewed every image on a result page for both `search` and
   `random`.
