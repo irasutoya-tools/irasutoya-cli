@@ -289,7 +289,9 @@ RSpec.describe Irasutoya::Cli::HtmlPage do
 
     Dir.mktmpdir do |directory|
       saved = []
-      Irasutoya::Cli::Download.new(page_url, directory).save { |path| saved << path }
+      Irasutoya::Cli::ImageTransfer.with_sessions do |download_transfer|
+        Irasutoya::Cli::Download.new(page_url, directory).save(download_transfer) { |path| saved << path }
+      end
       expect(saved.map { |path| File.binread(path) }).to eq(image_data)
     end
   end
