@@ -53,14 +53,18 @@ module Irasutoya
         with_html_connection(uri, sessions) do |http|
           fetch.with_connection(http) { get_html(http, uri, &) }
         end
-      rescue EOFError
-        raise Error, "Incomplete HTML response from #{uri}"
-      rescue SocketError
-        raise Error, "Could not resolve host for #{uri}"
-      rescue Timeout::Error
-        raise Error, "HTML request timed out for #{uri}"
+      rescue EOFError, SocketError, Timeout::Error => e
+        raise Error, connection_error_message(e, uri)
       rescue OpenURI::HTTPError => e
         raise OpenURI::HTTPError.new("#{e.message} for #{uri}", e.io)
+      end
+
+      def connection_error_message(error, uri)
+        case error
+        when EOFError then "Incomplete HTML response from #{uri}"
+        when SocketError then "Could not resolve host for #{uri}"
+        else "HTML request timed out for #{uri}"
+        end
       end
 
       def get_html(http, uri)
