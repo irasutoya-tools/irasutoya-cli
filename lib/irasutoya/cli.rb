@@ -17,6 +17,11 @@ module Irasutoya
     class Runner < Thor
       JSONL_OPTION = { type: :boolean, desc: 'Print one JSON object per result' }.freeze
 
+      # Matches Irasutoya::Cli::Preview::RENDERER_CACHE_KEY. Set directly on Thread.current
+      # (instead of calling into Preview) so this does not force-load `terminal_image` for
+      # commands that never preview an image.
+      RENDERER_CACHE_KEY = :irasutoya_preview_renderer
+
       def self.exit_on_failure?
         true
       end
@@ -109,11 +114,6 @@ module Irasutoya
              TerminalImage::UnsupportedFormat, TerminalImage::UnsupportedTerminal, URI::InvalidURIError => e
         say "warn: Could not preview #{escape_controls(image_url)}: #{escape_controls(e.message)}", :yellow
       end
-
-      # Matches Irasutoya::Cli::Preview::RENDERER_CACHE_KEY. Set directly on Thread.current
-      # (instead of calling into Preview) so this does not force-load `terminal_image` for
-      # commands that never preview an image.
-      RENDERER_CACHE_KEY = :irasutoya_preview_renderer
 
       def with_preview_sessions(&block)
         ImageTransfer.with_sessions do |transfer|
