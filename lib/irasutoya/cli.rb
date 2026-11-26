@@ -110,11 +110,24 @@ module Irasutoya
         say "warn: Could not preview #{escape_controls(image_url)}: #{escape_controls(e.message)}", :yellow
       end
 
+      # Matches Irasutoya::Cli::Preview::RENDERER_CACHE_KEY. Set directly on Thread.current
+      # (instead of calling into Preview) so this does not force-load `terminal_image` for
+      # commands that never preview an image.
+      RENDERER_CACHE_KEY = :irasutoya_preview_renderer
+
       def with_preview_sessions(&block)
         ImageTransfer.with_sessions do |transfer|
           @preview_transfer = transfer
-          PreviewConversion.with_command_cache(&block)
+          PreviewConversion.with_command_cache { with_renderer_cache(&block) }
         end
+      end
+
+      def with_renderer_cache
+        previous = Thread.current[RENDERER_CACHE_KEY]
+        Thread.current[RENDERER_CACHE_KEY] = {}
+        yield
+      ensure
+        Thread.current[RENDERER_CACHE_KEY] = previous
       end
     end
   end
