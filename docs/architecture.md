@@ -10,6 +10,12 @@ their arguments and options, and the output for search and random results.
   validation as search results and downloads. Page URL validation and image
   transfers use [`HttpsUrl`](../lib/irasutoya/cli/https_url.rb) to normalize
   legacy HTTP URLs.
+- **Categories and browse** work the same way. [`Category`](../lib/irasutoya/cli/category.rb)
+  wraps the gem's category scraper so it fetches pages through the same secure
+  fetcher as search and random, and
+  [`CategoryCommand`](../lib/irasutoya/cli/category_command.rb) lists category
+  titles and resolves a category title to its illustration links for `browse`,
+  which the runner displays through the same pipeline as `search`.
 - **Output and previews** start in the runner. JSON Lines output takes an early
   return, while text output can include previews when standard output is a
   terminal. [`Preview`](../lib/irasutoya/cli/preview.rb) selects the rendering

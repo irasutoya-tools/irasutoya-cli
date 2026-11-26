@@ -39,7 +39,26 @@ module Irasutoya
       method_option :jsonl, **JSONL_OPTION
       def search(query)
         require 'irasutoya/cli/illustration'
-        HtmlPage.with_sessions { with_preview_sessions { display_search_results(query) } }
+        HtmlPage.with_sessions { with_preview_sessions { display_results(Illustration.search(query:)) } }
+      rescue HtmlPage::Error => e
+        raise Thor::Error, e.message
+      end
+
+      desc 'categories', 'Lists irasutoya illustration categories'
+      method_option :jsonl, **JSONL_OPTION
+      def categories
+        require 'irasutoya/cli/category_command'
+        HtmlPage.with_sessions { CategoryCommand.new(jsonl: options[:jsonl]).list }
+      rescue HtmlPage::Error => e
+        raise Thor::Error, e.message
+      end
+
+      desc 'browse CATEGORY', 'Shows images from a category. CATEGORY must match a category title exactly.'
+      method_option :jsonl, **JSONL_OPTION
+      def browse(category_title)
+        require 'irasutoya/cli/category_command'
+        links = CategoryCommand.new.browse(category_title)
+        HtmlPage.with_sessions { with_preview_sessions { display_results(links) } }
       rescue HtmlPage::Error => e
         raise Thor::Error, e.message
       end
@@ -55,12 +74,8 @@ module Irasutoya
 
       private
 
-      def display_search_results(query)
-        Illustration.search(query:)
-                    .take(3)
-                    .lazy
-                    .filter_map(&method(:fetch_result))
-                    .each(&method(:display))
+      def display_results(links)
+        links.take(3).lazy.filter_map(&method(:fetch_result)).each(&method(:display))
       end
 
       def fetch_result(link)

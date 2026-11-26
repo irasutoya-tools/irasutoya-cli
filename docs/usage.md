@@ -34,10 +34,26 @@ bundle exec exe/irasutoya search '白い猫' > results.txt
 
 Image previews use [iTerm2](https://iterm2.com/index.html) when detected, or Sixel when the [libsixel](https://github.com/saitoha/libsixel) `img2sixel` command is on `PATH`. Otherwise, previews fall back to ANSI rendering and display in terminals that support 24-bit (true-color) ANSI colors. The ANSI fallback renders PNGs directly and requires ImageMagick (`magick` or `convert` on `PATH`) to convert other supported image formats to PNG.
 
+## List and browse categories
+
+いらすとや organizes almost its entire catalog into thematic and seasonal
+categories. `categories` lists every category title, and `browse CATEGORY`
+shows images from one category the same way `search` does:
+
+```sh
+bundle exec exe/irasutoya categories
+bundle exec exe/irasutoya browse '正月'
+```
+
+`CATEGORY` must match a category title exactly, as printed by `categories`.
+`browse` reports an error if no category matches. Otherwise it behaves like
+`search`: it fetches up to three results, prints the same metadata, renders
+previews in a terminal, and supports `--jsonl`.
+
 ### JSON Lines output
 
-Use `--jsonl` with `search` or `random` to write one JSON object per
-illustration page to standard output. This mode skips previews even in a
+Use `--jsonl` with `search`, `random`, or `browse` to write one JSON object
+per illustration page to standard output. This mode skips previews even in a
 terminal. Each object has four fields:
 
 | Field | Type | Contents |
@@ -46,6 +62,9 @@ terminal. Each object has four fields:
 | `title` | string | Illustration title |
 | `description` | string | Illustration description |
 | `image_urls` | array of strings | All image URLs on the page |
+
+Use `--jsonl` with `categories` to write one JSON object per category
+instead, with a single `title` field.
 
 Search writes each result as it becomes available. An empty search writes
 zero lines. If a result page returns an HTTP error or times out, search
@@ -56,6 +75,8 @@ bundle exec exe/irasutoya random --jsonl
 
 page_url=$(bundle exec exe/irasutoya search '白い猫' --jsonl | jq -ser '.[0].page_url // empty') &&
   bundle exec exe/irasutoya download "$page_url" --output ./images
+
+bundle exec exe/irasutoya categories --jsonl | jq -r '.title'
 ```
 
 ## Download images

@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'irasutoya'
+require 'irasutoya/cli/category_command'
 require 'irasutoya/cli/illustration'
 require 'irasutoya/cli/preview'
 require 'net/http'
@@ -459,6 +460,53 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
         let(:detail_error) { Net::ReadTimeout.new }
 
         it_behaves_like 'a recoverable detail page failure'
+      end
+    end
+
+    describe '#categories' do
+      subject { runner.categories }
+
+      it 'lists categories through CategoryCommand with the jsonl option' do
+        category_command = instance_double(Irasutoya::Cli::CategoryCommand, list: nil)
+        expect(Irasutoya::Cli::CategoryCommand).to receive(:new).with(jsonl: nil).and_return(category_command)
+
+        subject
+      end
+
+      it 'converts an HtmlPage::Error into a Thor::Error' do
+        allow(Irasutoya::Cli::CategoryCommand).to receive(:new).and_raise(Irasutoya::Cli::HtmlPage::Error, 'boom')
+
+        expect { subject }.to raise_error(Thor::Error, 'boom')
+      end
+    end
+
+    describe '#browse' do
+      subject { runner.browse('正月') }
+
+      let(:irasuto_link) do
+        Irasutoya::IrasutoLink.new(title: 'title', show_url: 'https://www.irasutoya.com/cat.html')
+      end
+
+      before do
+        category_command = instance_double(Irasutoya::Cli::CategoryCommand, browse: [irasuto_link])
+        allow(Irasutoya::Cli::CategoryCommand).to receive(:new).and_return(category_command)
+        allow(irasuto_link).to receive(:fetch_irasuto) { irasuto }
+      end
+
+      it_behaves_like 'a command displays irasuto'
+
+      it 'passes the category title to CategoryCommand#browse' do
+        category_command = instance_double(Irasutoya::Cli::CategoryCommand, browse: [irasuto_link])
+        expect(Irasutoya::Cli::CategoryCommand).to receive(:new).with(no_args).and_return(category_command)
+        expect(category_command).to receive(:browse).with('正月').and_return([irasuto_link])
+
+        expect { subject }.to output(expected).to_stdout
+      end
+
+      it 'converts an HtmlPage::Error into a Thor::Error' do
+        allow(Irasutoya::Cli::CategoryCommand).to receive(:new).and_raise(Irasutoya::Cli::HtmlPage::Error, 'boom')
+
+        expect { subject }.to raise_error(Thor::Error, 'boom')
       end
     end
   end
