@@ -23,18 +23,28 @@ module Irasutoya
       class InsecureRedirectError < ResponseError; end
 
       class ResponseBody
-        def self.read(response, http, max_bytes)
+        def self.read(response, http, max_bytes, &)
           bytes = 0
           length = checked_length(response, max_bytes)
+          bytes = stream_chunks(response, http, max_bytes, bytes, &)
+          validate(length, bytes)
+        rescue EOFError => e
+          validate(length, bytes, eof: e)
+        end
+
+        def self.stream_chunks(response, http, max_bytes, bytes)
           response.read_body do |chunk|
             bytes += chunk.bytesize
             enforce_limit(bytes, max_bytes, http: http)
 
             yield chunk
           end
-          validate(length, bytes)
-        rescue EOFError => e
-          validate(length, bytes, eof: e)
+          bytes
+        rescue IOError, Errno::EBADF => e
+          # Net::HTTP can still read the chunk terminator while unwinding from the closed connection.
+          raise e.cause if e.cause.is_a?(SizeLimitExceededError)
+
+          raise
         end
 
         def self.checked_length(response, max_bytes)
@@ -57,7 +67,7 @@ module Irasutoya
           raise ResponseError, 'Empty image response' if bytes.zero?
         end
 
-        private_class_method :checked_length, :enforce_limit, :validate
+        private_class_method :stream_chunks, :checked_length, :enforce_limit, :validate
       end
       private_constant :ResponseBody
 
