@@ -1,3 +1,8 @@
+---
+layout: page
+title: CLI reference
+---
+
 # CLI reference
 
 These examples use the current checkout. Follow the
