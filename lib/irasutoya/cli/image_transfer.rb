@@ -24,22 +24,22 @@ module Irasutoya
 
       class ResponseBody
         def self.read(response, http, max_bytes, &)
-          bytes = 0
           length = checked_length(response, max_bytes)
-          bytes = stream_chunks(response, http, max_bytes, bytes, &)
-          validate(length, bytes)
+          bytes = [0]
+          stream_chunks(response, http, max_bytes, bytes, &)
+          validate(length, bytes[0])
         rescue EOFError => e
-          validate(length, bytes, eof: e)
+          validate(length, bytes[0], eof: e)
         end
 
+        # bytes is a one-element Array so partial progress survives an EOFError unwinding past this method.
         def self.stream_chunks(response, http, max_bytes, bytes)
           response.read_body do |chunk|
-            bytes += chunk.bytesize
-            enforce_limit(bytes, max_bytes, http: http)
+            bytes[0] += chunk.bytesize
+            enforce_limit(bytes[0], max_bytes, http: http)
 
             yield chunk
           end
-          bytes
         rescue IOError, Errno::EBADF => e
           # Net::HTTP can still read the chunk terminator while unwinding from the closed connection.
           raise e.cause if e.cause.is_a?(SizeLimitExceededError)
