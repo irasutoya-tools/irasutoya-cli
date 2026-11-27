@@ -334,6 +334,14 @@ RSpec.describe 'irasutoya download' do
     expect(File.binread(path)).to eq(image_data.first)
   end
 
+  it 'escapes terminal controls in an image transfer failure message' do
+    allow(http).to receive(:request_get).with(URI.parse(image_urls.last).request_uri, request_headers) do
+      raise EOFError, "connection reset\e[0m\r\nTry again"
+    end
+
+    expect_failed_download('connection reset\x1B[0m\x0D\x0ATry again')
+  end
+
   it 'reports a connection closed before headers and only announces and keeps the completed image' do
     allow(http).to receive(:request_get).with(URI.parse(image_urls.last).request_uri, request_headers) do
       Net::HTTPResponse.read_new(Net::BufferedIO.new(StringIO.new('')))
@@ -570,6 +578,22 @@ RSpec.describe 'irasutoya download' do
       expect do
         expect { run_download }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
       end.to output("Incomplete image download from #{image_urls.last}: expected 12 bytes, received 5\n").to_stderr
+    end.to output("Saved: #{File.join(directory, 'cat.png')}\n").to_stdout
+    expect(Dir.children(directory)).to eq(['cat.png'])
+  end
+
+  it 'escapes terminal controls in an incomplete image download error' do
+    response = stub_image(image_urls.last, image_data.last)
+    allow(response).to receive(:read_body) do |&receive_chunk|
+      receive_chunk.call('partial')
+      raise EOFError, "connection reset\e[0m\r\nTry again"
+    end
+    escaped_error = "Incomplete image download from #{image_urls.last}: connection reset\\x1B[0m\\x0D\\x0ATry again\n"
+
+    expect do
+      expect do
+        expect { run_download }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      end.to output(escaped_error).to_stderr
     end.to output("Saved: #{File.join(directory, 'cat.png')}\n").to_stdout
     expect(Dir.children(directory)).to eq(['cat.png'])
   end
