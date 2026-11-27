@@ -23,12 +23,12 @@ module Irasutoya
       class InsecureRedirectError < ResponseError; end
 
       class ResponseBody
-        def self.read(response, max_bytes)
+        def self.read(response, http, max_bytes)
           bytes = 0
           length = checked_length(response, max_bytes)
           response.read_body do |chunk|
             bytes += chunk.bytesize
-            enforce_limit(bytes, max_bytes)
+            enforce_limit(bytes, max_bytes, http: http)
 
             yield chunk
           end
@@ -43,9 +43,11 @@ module Irasutoya
           response.content_length.tap { |length| enforce_limit(length, max_bytes) if length }
         end
 
-        def self.enforce_limit(bytes, max_bytes)
+        def self.enforce_limit(bytes, max_bytes, http: nil)
           return unless max_bytes && bytes > max_bytes
 
+          # Net::HTTP can still read the chunk terminator while unwinding.
+          http&.finish
           raise SizeLimitExceededError, "Image exceeds the #{max_bytes}-byte limit"
         end
 
@@ -111,7 +113,7 @@ module Irasutoya
         redirect = nil
         with_connection(uri, deadline) do |http|
           http.request_get(uri.request_uri, 'Accept-Encoding' => 'identity') do |response|
-            next stream_image(response, max_bytes, &on_chunk) unless REDIRECT_CODES.include?(response.code)
+            next stream_image(response, http, max_bytes, &on_chunk) unless REDIRECT_CODES.include?(response.code)
 
             redirect = response
             return redirect unless empty_body?(response)
@@ -133,11 +135,11 @@ module Irasutoya
         @sessions.discard(origin) unless completed
       end
 
-      def stream_image(response, max_bytes, &)
+      def stream_image(response, http, max_bytes, &)
         raise IncompleteBodyError, 'HTTP 206 Partial Content' if response.code == '206'
 
         response.value
-        ResponseBody.read(response, max_bytes, &)
+        ResponseBody.read(response, http, max_bytes, &)
       end
 
       def session(uri, origin)

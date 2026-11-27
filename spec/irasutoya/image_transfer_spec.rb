@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 require 'stringio'
+require 'openssl'
+require 'socket'
 
 RSpec.describe Irasutoya::Cli::ImageTransfer do
   let(:headers) { { 'Accept-Encoding' => 'identity' } }
@@ -134,7 +136,66 @@ RSpec.describe Irasutoya::Cli::ImageTransfer do
     end.to raise_error(Irasutoya::Cli::Error, 'Image redirect must use HTTPS')
   end
 
+  it 'closes an oversized chunked image stream even when the chunk terminator never arrives' do
+    with_tls_server do |server, image_url|
+      worker = Thread.new { serve_unterminated_chunk(server) }
+
+      expect do
+        described_class.fetch(URI(image_url), max_bytes: 256) { raise 'Unexpected image bytes' }
+      end.to raise_error(described_class::SizeLimitExceededError, 'Image exceeds the 256-byte limit')
+      expect(worker.join(5)).to eq(worker)
+    ensure
+      worker&.kill&.join
+    end
+  end
+
   def redirect_to(location)
     Net::HTTPFound.new('1.1', '302', 'Found').tap { |response| response['location'] = location }
+  end
+
+  def with_tls_server
+    context = local_tls_context
+    store = OpenSSL::X509::Store.new
+    store.add_cert(context.cert)
+    allow(Net::HTTP).to receive(:start).and_wrap_original do |start, host, port, **options, &request|
+      start.call(host, port, nil, **options, cert_store: store, read_timeout: 1, &request)
+    end
+
+    TCPServer.open('127.0.0.1', 0) do |server|
+      tls_server = OpenSSL::SSL::SSLServer.new(server, context)
+      yield tls_server, "https://127.0.0.1:#{server.addr[1]}/image.png"
+    end
+  end
+
+  def local_tls_context
+    key = OpenSSL::PKey::RSA.new(2048)
+    cert = OpenSSL::X509::Certificate.new
+    cert.version = 2
+    cert.serial = 1
+    cert.subject = cert.issuer = OpenSSL::X509::Name.parse('/CN=127.0.0.1')
+    cert.public_key = key.public_key
+    cert.not_before = Time.now - 60
+    cert.not_after = Time.now + 60
+    cert.add_extension(OpenSSL::X509::ExtensionFactory.new.create_extension('subjectAltName', 'IP:127.0.0.1'))
+    cert.sign(key, OpenSSL::Digest.new('SHA256'))
+
+    OpenSSL::SSL::SSLContext.new.tap do |context|
+      context.cert = cert
+      context.key = key
+    end
+  end
+
+  def serve_unterminated_chunk(server)
+    socket = server.accept
+    socket.each_line { |line| break if line == "\r\n" }
+    write_oversized_chunk(socket)
+    socket.read
+  ensure
+    socket&.close
+  end
+
+  def write_oversized_chunk(socket)
+    bytes = 257
+    socket.write("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n#{bytes.to_s(16)}\r\n#{'a' * bytes}")
   end
 end
