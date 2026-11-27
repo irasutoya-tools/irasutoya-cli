@@ -59,6 +59,10 @@ module Irasutoya
         raise Error, "Could not resolve host for #{uri}"
       rescue Timeout::Error
         raise Error, "HTML request timed out for #{uri}"
+      rescue Net::HTTPExceptions, OpenSSL::SSL::SSLError,
+             Errno::ECONNREFUSED, Errno::ECONNRESET, Errno::ECONNABORTED, Errno::EPIPE,
+             Errno::ETIMEDOUT, Errno::EHOSTUNREACH, Errno::ENETUNREACH => e
+        raise Error, "Could not fetch #{uri}: #{e.message}"
       end
 
       def get_html(http, uri)
