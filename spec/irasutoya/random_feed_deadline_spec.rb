@@ -48,6 +48,13 @@ RSpec.describe 'Random selection feed deadline' do
       .to raise_error(Irasutoya::Cli::Illustration::FeedError, 'Random selection feed could not resolve host')
   end
 
+  it 'surfaces a closed connection as a feed error instead of crashing' do
+    allow(Net::HTTP).to receive(:start).and_raise(EOFError)
+
+    expect { Irasutoya::Cli::Illustration.random }
+      .to raise_error(Irasutoya::Cli::Illustration::FeedError, 'Random selection feed connection closed unexpectedly')
+  end
+
   it 'surfaces a refused connection as a feed error instead of crashing' do
     allow(Net::HTTP).to receive(:start).and_raise(Errno::ECONNREFUSED)
 
