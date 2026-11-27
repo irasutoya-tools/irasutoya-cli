@@ -15,6 +15,10 @@ module Irasutoya
 
       FEED_TIMEOUT = 60
       MAX_FEED_BYTES = 64 * 1024
+      CONNECTION_ERRORS = [
+        EOFError, SocketError, OpenSSL::SSL::SSLError,
+        Errno::ECONNREFUSED, Errno::ECONNRESET, Errno::EHOSTUNREACH, Errno::ENETUNREACH
+      ].freeze
 
       class FeedError < StandardError; end
 
@@ -58,14 +62,17 @@ module Irasutoya
           end
         rescue Timeout::Error
           raise FeedError, 'Random selection feed request timed out'
-        rescue EOFError
-          raise FeedError, 'Random selection feed connection closed unexpectedly'
-        rescue SocketError
-          raise FeedError, 'Random selection feed could not resolve host'
-        rescue OpenSSL::SSL::SSLError
-          raise FeedError, 'Random selection feed TLS handshake failed'
-        rescue Errno::ECONNREFUSED, Errno::ECONNRESET, Errno::EHOSTUNREACH, Errno::ENETUNREACH => e
-          raise FeedError, "Random selection feed connection failed: #{e.message}"
+        rescue *CONNECTION_ERRORS => e
+          raise FeedError, connection_error_message(e)
+        end
+
+        def connection_error_message(error)
+          case error
+          when EOFError then 'Random selection feed connection closed unexpectedly'
+          when SocketError then 'Random selection feed could not resolve host'
+          when OpenSSL::SSL::SSLError then 'Random selection feed TLS handshake failed'
+          else "Random selection feed connection failed: #{error.message}"
+          end
         end
 
         def read_random_feed(http)
