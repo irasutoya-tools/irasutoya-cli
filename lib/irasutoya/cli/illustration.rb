@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'json'
+require 'openssl'
 require 'irasutoya'
 require 'irasutoya/cli/detail_page_fetch'
 require 'irasutoya/cli/html_page'
@@ -57,6 +58,14 @@ module Irasutoya
           end
         rescue Timeout::Error
           raise FeedError, 'Random selection feed request timed out'
+        rescue EOFError
+          raise FeedError, 'Random selection feed connection closed unexpectedly'
+        rescue SocketError
+          raise FeedError, 'Random selection feed could not resolve host'
+        rescue OpenSSL::SSL::SSLError
+          raise FeedError, 'Random selection feed TLS handshake failed'
+        rescue Errno::ECONNREFUSED, Errno::ECONNRESET, Errno::EHOSTUNREACH, Errno::ENETUNREACH => e
+          raise FeedError, "Random selection feed connection failed: #{e.message}"
         end
 
         def read_random_feed(http)
