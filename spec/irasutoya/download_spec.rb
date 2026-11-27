@@ -23,7 +23,13 @@ RSpec.describe 'irasutoya download' do
   let(:link) do
     Irasutoya::IrasutoLink.new(title: nil, show_url: page_url).extend(Irasutoya::Cli::HtmlPage)
   end
-  let(:http) { instance_double(Net::HTTP, started?: true, finish: nil) }
+  let(:http) do
+    instance_double(Net::HTTP).tap do |double|
+      finished = false
+      allow(double).to receive(:started?) { !finished }
+      allow(double).to receive(:finish) { finished = true }
+    end
+  end
   let(:request_headers) { { 'Accept-Encoding' => 'identity' } }
 
   around do |example|
