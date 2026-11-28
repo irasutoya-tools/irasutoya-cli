@@ -23,6 +23,7 @@ See the [CLI architecture guide](docs/architecture.md) for where to start readin
 bundle exec rubocop lib
 COVERAGE=true bundle exec rspec
 test -s coverage/coverage.xml
+gem build irasutoya-cli.gemspec
 ```
 
 ## Open a pull request
