@@ -14,7 +14,9 @@ RSpec.describe 'Random selection feed' do
 
   before do
     allow(Net::HTTP).to receive(:start).with('www.irasutoya.com', 443, use_ssl: true, max_retries: 0,
-                                           ignore_eof: false).and_yield(http)
+                                           ignore_eof: false).and_return(http)
+    allow(http).to receive(:started?).and_return(true)
+    allow(http).to receive(:finish)
     expect(http).to receive(:request_get).with(
       '/feeds/posts/summary?start-index=1&max-results=1&alt=json-in-script', headers
     ).and_yield(feed)
@@ -29,11 +31,18 @@ RSpec.describe 'Random selection feed' do
     end.to output(/Page URL: +#{Regexp.escape(page_url)}/).to_stdout
   end
 
-  it 'displays the normalized page URL in JSON Lines mode' do
+  it 'prints one JSON record with parsed metadata and ordered image URLs for the selected page' do
     stub_successful_selection
+    expected = {
+      'page_url' => page_url,
+      'title' => '白い猫',
+      'description' => "猫のイラスト\n別のポーズ",
+      'image_urls' => %w[https://example.com/cat.png https://example.com/cat2.png]
+    }
 
     expect { runner.start(%w[random --jsonl]) }
-      .to output(satisfy { |stdout| stdout.lines.one? && JSON.parse(stdout).fetch('page_url') == page_url }).to_stdout
+      .to output(satisfy { |stdout| stdout.lines.map { |line| JSON.parse(line) } == [expected] }).to_stdout
+      .and output('').to_stderr
   end
 
   it 'selects index 1 without a second fetch when the random draw picks the first entry' do
@@ -125,7 +134,7 @@ RSpec.describe 'Random selection feed' do
     body = "gdata.io.handleScriptLoaded(\n#{jsonp}\n);".ljust(feed_limit)
     feed['content-length'] = body.bytesize.to_s
     expect(feed).to receive(:read_body).and_yield(body[0, 32]).and_yield(body[32..])
-    stub_detail_page('/cat.html', 'https://example.com/cat.png')
+    stub_detail_page('/cat.html', '//example.com/cat.png')
   end
 
   def stub_count_only(count:)
@@ -148,10 +157,17 @@ RSpec.describe 'Random selection feed' do
 
   def stub_detail_page(path, image_url)
     page = Net::HTTPOK.new('1.1', '200', 'OK')
+    page['content-type'] = 'text/html; charset=UTF-8'
     expect(http).to receive(:request_get).with(path, headers).and_yield(page)
-    allow(page).to receive(:read_body).and_yield(
-      "<div class=\"entry\"><img data-src=\"placeholder.png\"><img src=\"#{image_url}\"></div>"
-    )
+    allow(page).to receive(:read_body).and_yield(<<~HTML.b)
+      <div class="post"><div class="title"><h2>白い猫</h2></div></div>
+      <div class="entry">
+        <div class="separator">
+          <img src="#{image_url}"><img data-src="placeholder.png"><img src="https://example.com/cat2.png">
+        </div>
+        <div class="separator">猫のイラスト&#10;別のポーズ</div>
+      </div>
+    HTML
   end
 
   def expect_feed_failure(args, message = error_message)

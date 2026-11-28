@@ -1,3 +1,8 @@
+---
+layout: page
+title: CLI architecture
+---
+
 # CLI architecture
 
 Start with [the executable](../exe/irasutoya), which loads the CLI and starts
@@ -5,16 +10,14 @@ the Thor runner. [`Runner`](../lib/irasutoya/cli.rb) defines the commands,
 their arguments and options, and the output for search and random results.
 
 - **Search** uses the `irasutoya` gem to find and parse illustration pages.
-  **Random** selection is reimplemented in
-  [`Illustration`](../lib/irasutoya/cli/illustration.rb) instead of delegating
-  to the gem: it fetches the feed's current total result count, picks a
-  one-based index across that whole range, and fetches the chosen entry, all
-  through the CLI's own deadline- and size-limited fetch instead of the gem's
-  unbounded one. Both paths use the same
-  [`PageUrl`](../lib/irasutoya/cli/page_url.rb) validation as downloads. Page
-  URL validation and image transfers use
-  [`HttpsUrl`](../lib/irasutoya/cli/https_url.rb) to normalize legacy HTTP
-  URLs.
+  For **random** selection, [`Illustration`](../lib/irasutoya/cli/illustration.rb)
+  fetches the feed's current total and samples a one-based index across that range.
+  It reuses the first response when index 1 is selected. Feed requests have a
+  deadline and a byte limit and share the HTTPS connection with the detail
+  request when the origin matches. Both paths validate links with
+  [`PageUrl`](../lib/irasutoya/cli/page_url.rb). Page URL validation and image
+  transfers use [`HttpsUrl`](../lib/irasutoya/cli/https_url.rb) to normalize
+  legacy HTTP URLs.
 - **Output and previews** start in the runner. JSON Lines output takes an early
   return, while text output can include previews when standard output is a
   terminal. [`Preview`](../lib/irasutoya/cli/preview.rb) selects the rendering
