@@ -1,0 +1,5 @@
+title: irasutoya-cli
+description: Guides and reference for the irasutoya-cli gem
+theme: minima
+plugins:
+  - jekyll-relative-links

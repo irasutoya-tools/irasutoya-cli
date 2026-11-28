@@ -1,3 +1,8 @@
+---
+layout: page
+title: Getting started
+---
+
 # Getting started
 
 ## Requirements
