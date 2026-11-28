@@ -67,9 +67,7 @@ module Irasutoya
         http.request_get(uri.request_uri, 'Accept-Encoding' => 'identity') do |response|
           return response if REDIRECT_CODES.include?(response.code)
 
-          unless response.is_a?(Net::HTTPSuccess)
-            raise OpenURI::HTTPError.new("#{response.code} #{response.message}", nil)
-          end
+          raise OpenURI::HTTPError.new("HTTP #{response.code}", nil) unless response.is_a?(Net::HTTPSuccess)
 
           yield response, http
         end
