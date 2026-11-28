@@ -190,13 +190,12 @@ module Irasutoya
         @metadata_suffixes = metadata_suffixes
       end
 
-      def save(transfer, &)
+      def save(transfer, next_suffixes = Hash.new(0), &)
         illustration = fetch_illustration
         images = illustration.image_urls
         raise SaveError, "No images found on #{@page_url}" if images.empty?
 
         prepare_directory
-        next_suffixes = Hash.new(0)
         saved_paths = images.map { |url| save_image(url, next_suffixes, transfer, &) }
         save_metadata(illustration, saved_paths, &) if @metadata
       end

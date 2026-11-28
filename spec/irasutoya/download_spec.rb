@@ -861,6 +861,22 @@ RSpec.describe 'irasutoya download' do
       $stdin = original_stdin
     end
 
+    context 'with many entries sharing one filename' do
+      let(:image_urls) { ['https://example.com/cat.png'] }
+      let(:count) { 100 }
+
+      it 'reuses suffix progress across pages instead of replaying earlier claims' do
+        File.write(input_path, "#{Array.new(count, page_url).join("\n")}\n")
+        expect(File).to receive(:link).exactly(count).times.and_call_original
+
+        expect { run_list('--input', input_path) }.to output(/\A(Saved: .+\n){#{count}}\z/).to_stdout
+
+        names = %w[cat.png] + (1...count).map { |index| "cat-#{index}.png" }
+        expect(Dir.children(directory)).to match_array(names)
+        expect(names.map { |name| File.binread(File.join(directory, name)) }).to all(eq(image_data.first))
+      end
+    end
+
     [Net::HTTPBadResponse, Net::HTTPHeaderSyntaxError].each do |error_class|
       it "reports #{error_class} with the line number and downloads the next page" do
         allow(Irasutoya::IrasutoLink).to receive(:new).with(title: nil, show_url: second_url).and_call_original
@@ -939,9 +955,10 @@ RSpec.describe 'irasutoya download' do
     context 'with a URL list' do
       let(:input_path) { File.join(@workspace, 'pages.txt') }
 
-      it 'claims 100 sequential sidecars in 100 link attempts for 100 repeated pages' do
+      it 'reuses image and sidecar suffix progress together for 100 repeated pages' do
         File.write(input_path, "#{page_url}\n" * 100)
         allow(File).to receive(:link).and_call_original
+        expect(File).to receive(:link).with(anything, /\.png\z/).exactly(200).times.and_call_original
         expect(File).to receive(:link).with(anything, /\.json\z/).exactly(100).times.and_call_original
 
         expect { run_list('--input', input_path, '--metadata') }.to output.to_stdout
