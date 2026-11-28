@@ -2,7 +2,7 @@ PATH
   remote: .
   specs:
     irasutoya-cli (1.0.2)
-      irasutoya (~> 2.0)
+      irasutoya (~> 2.0, >= 2.0.4)
       json
       terminal_image (~> 1.1)
       thor (>= 1.5.0)

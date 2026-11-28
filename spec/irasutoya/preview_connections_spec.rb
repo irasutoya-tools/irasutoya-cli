@@ -48,13 +48,10 @@ RSpec.describe Irasutoya::Cli::Runner do
     let(:feed_path) { '/feeds/posts/summary?start-index=1&max-results=1&alt=json-in-script' }
     let(:detail_response) { ['/cat.html', '200 OK', {}, '<div class="entry">Cat</div>'] }
 
-    before do
-      allow(Irasutoya::Cli::Illustration).to receive(:random_api_path).and_return(feed_path)
-    end
-
-    it 'sends both GETs on one HTTPS connection for the same origin' do
+    it 'fetches the count, selected entry, and detail page on one HTTPS connection' do
       url = "https://#{feed_host}/cat.html"
-      serve_https([feed_response(url), detail_response]) do |origin|
+      allow(Random).to receive(:rand).with(2).and_return(1)
+      serve_https([feed_response(url, count: 2), feed_response(url, index: 2), detail_response]) do |origin|
         route_random_requests(feed_host => origin)
 
         runner.random
@@ -101,9 +98,11 @@ RSpec.describe Irasutoya::Cli::Runner do
       end
     end
 
-    def feed_response(url)
+    def feed_response(url, count: 1, index: 1)
       entry = { link: [{ rel: 'alternate', href: url }] }
-      [feed_path, '200 OK', {}, "callback(#{JSON.generate(feed: { entry: [entry] })});"]
+      feed = { 'openSearch$totalResults' => { '$t' => count.to_s }, entry: [entry] }
+      path = feed_path.sub('start-index=1', "start-index=#{index}")
+      [path, '200 OK', {}, "callback(#{JSON.generate(feed: feed)});"]
     end
 
     def route_random_requests(origins)

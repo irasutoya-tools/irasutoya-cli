@@ -18,7 +18,7 @@ RSpec.describe 'Random selection feed' do
     allow(http).to receive(:started?).and_return(true)
     allow(http).to receive(:finish)
     expect(http).to receive(:request_get).with(
-      %r{\A/feeds/posts/summary\?start-index=\d+&max-results=1&alt=json-in-script\z}, headers
+      '/feeds/posts/summary?start-index=1&max-results=1&alt=json-in-script', headers
     ).and_yield(feed)
   end
 
@@ -45,6 +45,27 @@ RSpec.describe 'Random selection feed' do
       .and output('').to_stderr
   end
 
+  it 'selects index 1 without a second fetch when the random draw picks the first entry' do
+    allow(Random).to receive(:rand).with(3).and_return(0)
+    stub_successful_selection(count: 3)
+
+    expect do
+      allow($stdout).to receive(:tty?).and_return(false)
+      runner.start(['random'])
+    end.to output(/Page URL: +#{Regexp.escape(page_url)}/).to_stdout
+  end
+
+  it 'selects index N, never index 0, when the random draw picks the final entry' do
+    allow(Random).to receive(:rand).with(3).and_return(2)
+    stub_count_only(count: 3)
+    stub_second_fetch(index: 3, feed_url: 'http://www.irasutoya.com/dog.html')
+
+    expect do
+      allow($stdout).to receive(:tty?).and_return(false)
+      runner.start(['random'])
+    end.to output(%r{Page URL: +https://www\.irasutoya\.com/dog\.html}).to_stdout
+  end
+
   it 'rejects a declared oversized feed before reading its body' do
     feed['content-length'] = (feed_limit + 1).to_s
     expect(feed).not_to receive(:read_body)
@@ -66,21 +87,35 @@ RSpec.describe 'Random selection feed' do
     expect_feed_failure(%w[random --jsonl])
   end
 
+  total_results_1 = '"openSearch$totalResults":{"$t":"1"}'
+
   {
-    'an empty feed' => ['callback({"feed":{"entry":[]}});', 'has no usable entry'],
-    'an invalid entry' => ['callback({"feed":{"entry":[null]}});', 'has no usable entry'],
+    'an empty feed' => ["callback({\"feed\":{#{total_results_1},\"entry\":[]}});", 'has no usable entry'],
+    'an invalid entry' => ["callback({\"feed\":{#{total_results_1},\"entry\":[null]}});", 'has no usable entry'],
     'invalid JSONP' => ['callback({"feed":{}}', 'is not valid JSONP'],
     'invalid JSON' => ['callback({"feed":});', 'contains invalid JSON'],
-    'a missing alternate link' => ['callback({"feed":{"entry":[{"link":[{"rel":"self"}]}]}});',
-                                   'has no usable alternate link'],
-    'an alternate link without an href' => ['callback({"feed":{"entry":[{"link":[{"rel":"alternate"}]}]}});',
-                                            'has no usable alternate link']
+    'a missing alternate link' =>
+      ["callback({\"feed\":{#{total_results_1},\"entry\":[{\"link\":[{\"rel\":\"self\"}]}]}});",
+       'has no usable alternate link'],
+    'an alternate link without an href' =>
+      ["callback({\"feed\":{#{total_results_1},\"entry\":[{\"link\":[{\"rel\":\"alternate\"}]}]}});",
+       'has no usable alternate link'],
+    'a missing total result count' => ['callback({"feed":{"entry":[]}});', 'has no usable total result count'],
+    'a non-numeric total result count' =>
+      ['callback({"feed":{"openSearch$totalResults":{"$t":"many"},"entry":[]}});',
+       'has no usable total result count']
   }.each do |description, (body, reason)|
     it "reports #{description}" do
       expect(feed).to receive(:read_body).and_yield(body)
 
       expect_feed_failure(%w[random --jsonl], "Random selection feed response #{reason}\n")
     end
+  end
+
+  it 'reports a feed with no entries at all' do
+    expect(feed).to receive(:read_body).and_yield('callback({"feed":{"openSearch$totalResults":{"$t":"0"}}});')
+
+    expect_feed_failure(%w[random --jsonl], "Random selection feed has no entries\n")
   end
 
   context 'when the feed returns HTTP 503' do
@@ -93,19 +128,42 @@ RSpec.describe 'Random selection feed' do
     end
   end
 
-  def stub_successful_selection
-    jsonp = %({"feed":{"entry":[{"link":[{"rel":"self"},{"rel":"alternate","href":"#{feed_url}"}]}]}})
+  def stub_successful_selection(count: 1)
+    jsonp = %({"feed":{"openSearch$totalResults":{"$t":"#{count}"},) +
+            %("entry":[{"link":[{"rel":"self"},{"rel":"alternate","href":"#{feed_url}"}]}]}})
     body = "gdata.io.handleScriptLoaded(\n#{jsonp}\n);".ljust(feed_limit)
     feed['content-length'] = body.bytesize.to_s
     expect(feed).to receive(:read_body).and_yield(body[0, 32]).and_yield(body[32..])
+    stub_detail_page('/cat.html', '//example.com/cat.png')
+  end
+
+  def stub_count_only(count:)
+    body = %(gdata.io.handleScriptLoaded({"feed":{"openSearch$totalResults":{"$t":"#{count}"},"entry":[]}});)
+    feed['content-length'] = body.bytesize.to_s
+    expect(feed).to receive(:read_body).and_yield(body)
+  end
+
+  def stub_second_fetch(index:, feed_url:)
+    jsonp = %({"feed":{"entry":[{"link":[{"rel":"alternate","href":"#{feed_url}"}]}]}})
+    body = "gdata.io.handleScriptLoaded(#{jsonp});"
+    second_feed = Net::HTTPOK.new('1.1', '200', 'OK')
+    second_feed['content-length'] = body.bytesize.to_s
+    expect(http).to receive(:request_get).with(
+      "/feeds/posts/summary?start-index=#{index}&max-results=1&alt=json-in-script", headers
+    ).and_yield(second_feed)
+    expect(second_feed).to receive(:read_body).and_yield(body)
+    stub_detail_page(feed_url.sub('http://www.irasutoya.com', ''), 'https://example.com/dog.png')
+  end
+
+  def stub_detail_page(path, image_url)
     page = Net::HTTPOK.new('1.1', '200', 'OK')
     page['content-type'] = 'text/html; charset=UTF-8'
-    expect(http).to receive(:request_get).with('/cat.html', headers).and_yield(page)
+    expect(http).to receive(:request_get).with(path, headers).and_yield(page)
     allow(page).to receive(:read_body).and_yield(<<~HTML.b)
       <div class="post"><div class="title"><h2>白い猫</h2></div></div>
       <div class="entry">
         <div class="separator">
-          <img src="//example.com/cat.png"><img data-src="placeholder.png"><img src="https://example.com/cat2.png">
+          <img src="#{image_url}"><img data-src="placeholder.png"><img src="https://example.com/cat2.png">
         </div>
         <div class="separator">猫のイラスト&#10;別のポーズ</div>
       </div>
