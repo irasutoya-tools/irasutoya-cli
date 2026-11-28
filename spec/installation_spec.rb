@@ -32,3 +32,15 @@ RSpec.describe 'Installation instructions' do
     ])
   end
 end
+
+RSpec.describe 'Getting started guide' do
+  it 'runs the walkthrough download only after extracting a page URL' do
+    guide = File.read(File.expand_path('../docs/getting-started.md', __dir__))
+    commands = guide[/^### Chain search and download\n.*?^```sh\n(.*?)^```/m, 1]
+
+    expect(commands).to include(<<~'SH')
+      $ page_url=$(bundle exec exe/irasutoya search '猫' --jsonl | jq -ser '.[0].page_url // empty') &&
+        bundle exec exe/irasutoya download "$page_url" --output ./images
+    SH
+  end
+end
