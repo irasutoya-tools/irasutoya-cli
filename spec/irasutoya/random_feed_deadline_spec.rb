@@ -41,6 +41,43 @@ RSpec.describe 'Random selection feed deadline' do
       .to raise_error(Irasutoya::Cli::Illustration::FeedError, 'Random selection feed request timed out')
   end
 
+  it 'surfaces a DNS failure as a feed error instead of crashing' do
+    allow(Net::HTTP).to receive(:start).and_raise(SocketError)
+
+    expect { Irasutoya::Cli::Illustration.random }
+      .to raise_error(Irasutoya::Cli::Illustration::FeedError, 'Random selection feed could not resolve host')
+  end
+
+  it 'surfaces a closed connection as a feed error instead of crashing' do
+    allow(Net::HTTP).to receive(:start).and_raise(EOFError)
+
+    expect { Irasutoya::Cli::Illustration.random }
+      .to raise_error(Irasutoya::Cli::Illustration::FeedError, 'Random selection feed connection closed unexpectedly')
+  end
+
+  it 'surfaces a refused connection as a feed error instead of crashing' do
+    allow(Net::HTTP).to receive(:start).and_raise(Errno::ECONNREFUSED)
+
+    expect { Irasutoya::Cli::Illustration.random }
+      .to raise_error(Irasutoya::Cli::Illustration::FeedError, /\ARandom selection feed connection failed: /)
+  end
+
+  it 'surfaces a TLS handshake failure as a feed error instead of crashing' do
+    allow(Net::HTTP).to receive(:start).and_raise(OpenSSL::SSL::SSLError)
+
+    expect { Irasutoya::Cli::Illustration.random }
+      .to raise_error(Irasutoya::Cli::Illustration::FeedError, 'Random selection feed TLS handshake failed')
+  end
+
+  it 'exits cleanly with a Thor error when the random command cannot resolve the feed host' do
+    allow(Net::HTTP).to receive(:start).and_raise(SocketError)
+
+    expect do
+      expect { Irasutoya::Cli::Runner.start(['random']) }
+        .to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+    end.to output("Random selection feed could not resolve host\n").to_stderr.and output('').to_stdout
+  end
+
   def with_feed_server(use_ssl:)
     TCPServer.open('127.0.0.1', 0) do |server|
       expect(Net::HTTP).to receive(:start).once.and_wrap_original do |start, host, _port, **options, &request|

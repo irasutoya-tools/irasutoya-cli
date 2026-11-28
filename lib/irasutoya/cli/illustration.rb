@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'json'
+require 'openssl'
 require 'irasutoya'
 require 'irasutoya/cli/detail_page_fetch'
 require 'irasutoya/cli/html_page'
@@ -14,6 +15,10 @@ module Irasutoya
 
       FEED_TIMEOUT = 60
       MAX_FEED_BYTES = 64 * 1024
+      CONNECTION_ERRORS = [
+        EOFError, SocketError, OpenSSL::SSL::SSLError,
+        Errno::ECONNREFUSED, Errno::ECONNRESET, Errno::EHOSTUNREACH, Errno::ENETUNREACH
+      ].freeze
 
       class FeedError < StandardError; end
 
@@ -59,14 +64,29 @@ module Irasutoya
         def fetch_random_feed
           deadline = TransferDeadline.new
           sessions = Thread.current[:irasutoya_html_sessions]
-          uri = URI('https://www.irasutoya.com')
           deadline.run(FEED_TIMEOUT, FeedError, 'Random selection feed deadline exceeded') do
-            with_page_connection(uri, sessions) do |http|
-              deadline.with_connection(http) { read_random_feed(http) }
-            end
+            request_random_feed(deadline, sessions)
           end
         rescue Timeout::Error
           raise FeedError, 'Random selection feed request timed out'
+        rescue *CONNECTION_ERRORS => e
+          raise FeedError, connection_error_message(e)
+        end
+
+        def request_random_feed(deadline, sessions)
+          uri = URI('https://www.irasutoya.com')
+          with_page_connection(uri, sessions) do |http|
+            deadline.with_connection(http) { read_random_feed(http) }
+          end
+        end
+
+        def connection_error_message(error)
+          case error
+          when EOFError then 'Random selection feed connection closed unexpectedly'
+          when SocketError then 'Random selection feed could not resolve host'
+          when OpenSSL::SSL::SSLError then 'Random selection feed TLS handshake failed'
+          else "Random selection feed connection failed: #{error.message}"
+          end
         end
 
         def read_random_feed(http)
