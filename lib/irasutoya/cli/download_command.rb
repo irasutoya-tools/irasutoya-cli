@@ -31,13 +31,14 @@ module Irasutoya
       def download_target(transfer, &)
         return download_page(@page_url, transfer, &) unless @input
 
+        next_suffixes = Hash.new(0)
         HtmlPage.with_sessions do
-          DownloadList.new(@input).each { |url| download_page(url, transfer, &) }
+          DownloadList.new(@input).each { |url| download_page(url, transfer, next_suffixes, &) }
         end
       end
 
-      def download_page(url, transfer, &)
-        Download.new(url, @directory, metadata: @metadata).save(transfer, &)
+      def download_page(url, transfer, next_suffixes = Hash.new(0), &)
+        Download.new(url, @directory, metadata: @metadata).save(transfer, next_suffixes, &)
       rescue Download::SaveError => e
         raise Thor::Error, e.message
       end
