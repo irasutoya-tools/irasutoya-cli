@@ -7,7 +7,7 @@ title: Getting started
 
 ## Requirements
 
-Ruby 3.3 or newer.
+The RubyGems release (1.0.1) requires Ruby 3.1 or newer.
 
 ## Install
 
@@ -41,8 +41,10 @@ finds.
 ### Download the images from a page
 
 The installed gem (version 1.0.1) does not include the `download` command
-or the `--jsonl` option used below. To use them, run the CLI from a checkout
-instead:
+or the `--jsonl` option used below. To use them, run the CLI from a checkout,
+which requires Ruby 3.3 or newer. Use the Ruby and Bundler versions listed
+in the [checkout setup instructions](https://github.com/irasutoya-tools/irasutoya-cli/blob/master/README.md#download-images-from-a-checkout),
+then run:
 
 ```sh
 $ git clone https://github.com/irasutoya-tools/irasutoya-cli.git

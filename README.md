@@ -25,7 +25,7 @@ terminal.
 
 ## Installation
 
-Ruby 3.3 or newer is required.
+The RubyGems release (1.0.1) requires Ruby 3.1 or newer.
 
 ```sh
 $ gem install irasutoya-cli
@@ -45,7 +45,8 @@ Run `irasutoya random` to browse a randomly selected illustration or
 ## Download images from a checkout
 
 The `download` command requires a checkout when using the 1.0.1 release.
-Install the Ruby version in [.ruby-version](https://github.com/irasutoya-tools/irasutoya-cli/blob/master/.ruby-version)
+The checkout requires Ruby 3.3 or newer. To match the development environment,
+use the Ruby version in [.ruby-version](https://github.com/irasutoya-tools/irasutoya-cli/blob/master/.ruby-version)
 and the Bundler version under `BUNDLED WITH` in [Gemfile.lock](https://github.com/irasutoya-tools/irasutoya-cli/blob/master/Gemfile.lock), then run:
 
 ```sh
