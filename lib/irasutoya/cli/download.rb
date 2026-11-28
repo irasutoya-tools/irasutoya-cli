@@ -88,6 +88,15 @@ module Irasutoya
       private_constant :TemporaryImage
 
       class ImageLink
+        class LinkError < StandardError
+          attr_reader :path
+
+          def initialize(path, error)
+            @path = path
+            super(error.message)
+          end
+        end
+
         def initialize(directory)
           @directory = directory
         end
@@ -97,14 +106,14 @@ module Irasutoya
           path = File.join(@directory, "#{stem}#{ending}")
           path.tap { File.link(source, path) }
         rescue Errno::ENAMETOOLONG => e
-          raise_save_error(path, e) if stem.empty?
+          raise_link_error(path, e) if stem.empty?
 
           stem = stem[0...-1]
           retry
         rescue SystemCallError => e
           raise if e.is_a?(Errno::EEXIST)
 
-          raise_save_error(path, e)
+          raise_link_error(path, e)
         end
 
         private
@@ -129,8 +138,8 @@ module Irasutoya
           stem.byteslice(0, bytes)
         end
 
-        def raise_save_error(path, error)
-          raise SaveError, TerminalOutput.escape_controls("Could not save image at #{path}: #{error.message}")
+        def raise_link_error(path, error)
+          raise LinkError.new(path, error)
         end
       end
       private_constant :ImageLink
@@ -176,6 +185,8 @@ module Irasutoya
           rescue Errno::EEXIST
             index += 1
           end
+        rescue ImageLink::LinkError => e
+          raise SaveError, TerminalOutput.escape_controls("Could not save metadata at #{e.path}: #{e.message}")
         end
       end
       private_constant :Metadata
@@ -224,6 +235,8 @@ module Irasutoya
         raise SaveError, TerminalOutput.escape_controls("Could not download #{url}: #{e.message}")
       rescue ImageTransfer::ResponseError => e
         raise SaveError, TerminalOutput.escape_controls("Could not fetch image #{url}: #{e.message}")
+      rescue ImageLink::LinkError => e
+        raise SaveError, TerminalOutput.escape_controls("Could not save image at #{e.path}: #{e.message}")
       end
 
       def download_and_link_image(uri, next_suffixes, transfer)
