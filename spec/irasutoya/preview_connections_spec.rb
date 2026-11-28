@@ -270,7 +270,7 @@ RSpec.describe Irasutoya::Cli::Runner do
   end
 
   it 'warns once for a malformed Content-Length and previews the next image on a fresh connection' do
-    serve_previews(
+    serve_https(
       [['/malformed.png', '200 OK', { 'Content-Length' => 'oops' }]],
       [['/next.png', '200 OK', {}, 'next']]
     ) do |origin|
