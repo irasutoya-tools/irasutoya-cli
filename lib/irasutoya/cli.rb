@@ -30,7 +30,7 @@ module Irasutoya
       method_option :jsonl, **JSONL_OPTION
       def random
         require 'irasutoya/cli/illustration'
-        with_preview_sessions { display(Illustration.random) }
+        with_preview_sessions { display(HtmlPage.with_sessions { Illustration.random }) }
       rescue HtmlPage::Error, Illustration::FeedError, URI::InvalidURIError => e
         raise Thor::Error, e.message
       end
