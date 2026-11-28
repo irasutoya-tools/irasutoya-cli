@@ -36,12 +36,32 @@ module Irasutoya
         end
       end
 
+      def parse_show_page(document:)
+        if document.url
+          base = URI.parse(document.url)
+          document.css('.entry img[src]').each do |image|
+            image['src'] = resolve_image_source(base, image['src'])
+          end
+        end
+
+        super
+      end
+
       private
+
+      def resolve_image_source(base, source)
+        reference = URI.parse(source)
+        return source if reference.absolute? || source.empty?
+
+        (base + reference).to_s
+      rescue URI::Error
+        source
+      end
 
       def fetch_html(uri, fetch, sessions)
         MAX_REDIRECTS.downto(0) do |remaining|
           document = nil
-          redirect = request_html(uri, fetch, sessions) { |response, http| document = parse_html(response, http) }
+          redirect = request_html(uri, fetch, sessions) { |response, http| document = parse_html(response, http, uri) }
           return document if document
           raise Error, 'Too many HTML redirects' if remaining.zero?
 
@@ -89,10 +109,10 @@ module Irasutoya
         sessions&.discard(origin) unless completed
       end
 
-      def parse_html(response, http)
+      def parse_html(response, http, uri)
         limit_error = Error.new("HTML response exceeds the #{MAX_BYTES}-byte limit")
         html = ResponseBody.read(response, http, max_bytes: MAX_BYTES, limit_error: limit_error)
-        Nokogiri::HTML.parse(html, nil, html_charset(response))
+        Nokogiri::HTML.parse(html, uri.to_s, html_charset(response))
       end
 
       def html_charset(response)

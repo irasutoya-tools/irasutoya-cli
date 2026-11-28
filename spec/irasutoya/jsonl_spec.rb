@@ -57,15 +57,19 @@ RSpec.describe 'JSON Lines output' do
       <div class="entry">
         <div class="separator">
           <img src="//example.com/cat.png"><img alt="placeholder"><img src="https://example.com/cat2.png">
+          <img src="/images/root.png"><img src="images/relative.png">
+          <img src="invalid image.png">
         </div>
         <div class="separator">猫のイラスト&#10;別のポーズ</div>
       </div>
     HTML
 
+    relative_images = %w[https://www.irasutoya.com/images/root.png https://www.irasutoya.com/2026/01/images/relative.png]
+    expected = result.merge('image_urls' => result.fetch('image_urls') + relative_images + ['invalid image.png'])
     records = nil
     expect { runner.start(['search', '猫 & 犬', '--jsonl']) }.to output(satisfy do |stdout|
       records = stdout.lines.map { |line| JSON.parse(line) }
-      records == [result]
+      records == [expected]
     end).to_stdout.and output(<<~WARNINGS).to_stderr
       warn: Could not fetch result page #{invalid_urls[0]}: Page URL must be on irasutoya.com or www.irasutoya.com with a path ending in .html
       warn: Could not fetch result page #{invalid_urls[1]}: Page URL must be on irasutoya.com or www.irasutoya.com with a path ending in .html
