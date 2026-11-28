@@ -43,8 +43,81 @@ RSpec.describe Irasutoya::Cli::Runner do
     end
   end
 
+  context 'when fetching the random selection and detail page' do
+    let(:feed_host) { 'www.irasutoya.com' }
+    let(:feed_path) { '/feeds/posts/summary?start-index=1&max-results=1&alt=json-in-script' }
+    let(:detail_response) { ['/cat.html', '200 OK', {}, '<div class="entry">Cat</div>'] }
+
+    before do
+      allow(Irasutoya::Cli::Illustration).to receive(:random_api_path).and_return(feed_path)
+    end
+
+    it 'sends both GETs on one HTTPS connection for the same origin' do
+      url = "https://#{feed_host}/cat.html"
+      serve_https([feed_response(url), detail_response]) do |origin|
+        route_random_requests(feed_host => origin)
+
+        runner.random
+
+        expect(runner).to have_received(:say).with("Page URL:    #{url}")
+      end
+    end
+
+    it 'opens a separate HTTPS connection for a different origin' do
+      detail_host = 'irasutoya.com'
+      url = "https://#{detail_host}/cat.html"
+      serve_https([detail_response]) do |detail_origin|
+        serve_https([feed_response(url)]) do |feed_origin|
+          route_random_requests(feed_host => feed_origin, detail_host => detail_origin)
+
+          runner.random
+
+          expect(runner).to have_received(:say).with("Page URL:    #{url}")
+        end
+      end
+    end
+
+    it 'discards the feed connection after an unsuccessful status' do
+      response = [feed_path, '503 Service Unavailable', { 'Content-Length' => '1' }]
+      expect_feed_retry(response, /HTTP 503/)
+    end
+
+    it 'discards the feed connection when a chunked response exceeds the byte limit midstream' do
+      limit = Irasutoya::Cli::Illustration::MAX_FEED_BYTES
+      body = "1\r\na\r\n#{limit.to_s(16)}\r\n#{'b' * limit}"
+      response = [feed_path, '200 OK', { 'Transfer-Encoding' => 'chunked' }, body]
+      expect_feed_retry(response, /byte limit/)
+    end
+
+    def expect_feed_retry(response, error)
+      url = "https://#{feed_host}/cat.html"
+      serve_https([response], [feed_response(url), detail_response]) do |origin|
+        route_random_requests(feed_host => origin)
+
+        Irasutoya::Cli::HtmlPage.with_sessions do
+          expect { Irasutoya::Cli::Illustration.random }.to raise_error(Irasutoya::Cli::Illustration::FeedError, error)
+          expect(Irasutoya::Cli::Illustration.random.url).to eq(url)
+        end
+      end
+    end
+
+    def feed_response(url)
+      entry = { link: [{ rel: 'alternate', href: url }] }
+      [feed_path, '200 OK', {}, "callback(#{JSON.generate(feed: { entry: [entry] })});"]
+    end
+
+    def route_random_requests(origins)
+      store = OpenSSL::X509::Store.new
+      store.add_cert(certificate)
+      allow(Net::HTTP).to receive(:start).and_wrap_original do |start, host, _port, **options, &block|
+        target = URI(origins.fetch(host))
+        start.call(target.host, target.port, nil, **options, cert_store: store, open_timeout: 2, read_timeout: 2, &block)
+      end
+    end
+  end
+
   it 'reuses one connection across search results and follows a bodyless same-origin redirect' do
-    serve_previews([
+    serve_https([
       ['/first.png', '302 Found', { 'Location' => '/redirected.png' }, ''],
       ['/redirected.png', '200 OK', {}, 'first'],
       ['/second.png', '200 OK', {}, 'second']
@@ -67,7 +140,7 @@ RSpec.describe Irasutoya::Cli::Runner do
     'malformed with control characters' => ["https://example.com/\e", 'https://example.com/\x1B']
   }.each do |kind, (invalid_url, escaped_url)|
     it "warns once and continues the search when an image URL is #{kind}" do
-      serve_previews([['/first.png', '200 OK', {}, 'first'], ['/second.png', '200 OK', {}, 'second']]) do |origin|
+      serve_https([['/first.png', '200 OK', {}, 'first'], ['/second.png', '200 OK', {}, 'second']]) do |origin|
         first = Irasutoya::Irasuto.new(url: page_url, title: 'First', description: '',
                                       image_urls: [invalid_url, "#{origin}/first.png"])
         second = illustration("#{origin}/second.png", url: later_page_url)
@@ -91,7 +164,7 @@ RSpec.describe Irasutoya::Cli::Runner do
     redirects = (0...6).map do |index|
       ["/redirect-#{index}.png", '302 Found', { 'Location' => "/redirect-#{index + 1}.png" }, '']
     end
-    serve_previews([*redirects, ['/next.png', '200 OK', {}, 'next'], ['/later.png', '200 OK', {}, 'later']]) do |origin|
+    serve_https([*redirects, ['/next.png', '200 OK', {}, 'next'], ['/later.png', '200 OK', {}, 'later']]) do |origin|
       failed_url = "#{origin}/redirect-0.png"
       later_url = "#{origin}/later.png"
       results = [illustration(failed_url, "#{origin}/next.png"), illustration(later_url, url: later_page_url)]
@@ -111,7 +184,7 @@ RSpec.describe Irasutoya::Cli::Runner do
     refused_url = 'https://refused.example/first.png'
     allow(Net::HTTP).to receive(:start).with('refused.example', 443, any_args).and_raise(Errno::ECONNREFUSED)
 
-    serve_previews([['/next.png', '200 OK', {}, 'next']]) do |origin|
+    serve_https([['/next.png', '200 OK', {}, 'next']]) do |origin|
       results = [illustration(refused_url), illustration("#{origin}/next.png", url: later_page_url)]
       links = results.map { |result| instance_double(Irasutoya::IrasutoLink, show_url: result.url, fetch_irasuto: result) }
       allow(Irasutoya::Cli::Illustration).to receive(:search).with(query: 'query').and_return(links)
@@ -126,7 +199,7 @@ RSpec.describe Irasutoya::Cli::Runner do
   end
 
   it 'warns once when a connection closes before headers and continues previewing search results' do
-    serve_previews(
+    serve_https(
       [['/closed.png']],
       [['/first.png', '200 OK', {}, 'first'], ['/second.png', '200 OK', {}, 'second']]
     ) do |origin|
@@ -146,7 +219,7 @@ RSpec.describe Irasutoya::Cli::Runner do
 
   it 'warns once when a trickling body exceeds the deadline and previews the next image' do
     stub_const('Irasutoya::Cli::ImageTransfer::TRANSFER_TIMEOUT', 0.25)
-    serve_previews(
+    serve_https(
       [['/slow.png', '200 OK', {}, 'x' * 20, 0.05]],
       [['/next.png', '200 OK', {}, 'next']]
     ) do |origin|
@@ -164,7 +237,7 @@ RSpec.describe Irasutoya::Cli::Runner do
 
   it 'reports the deadline while a chunk is stalled and previews the next image on a fresh connection' do
     stub_const('Irasutoya::Cli::ImageTransfer::TRANSFER_TIMEOUT', 0.25)
-    serve_previews(
+    serve_https(
       [['/stalled.png', '200 OK', { 'Transfer-Encoding' => 'chunked' }, "2\r\nx"]],
       [['/next.png', '200 OK', {}, 'next']]
     ) do |origin|
@@ -182,7 +255,7 @@ RSpec.describe Irasutoya::Cli::Runner do
 
   it 'rejects oversized headers while the server withholds the body and previews the next image' do
     stub_const('Irasutoya::Cli::ImageTransfer::MAX_IMAGE_BYTES', 4)
-    serve_previews(
+    serve_https(
       [['/oversized.png', '200 OK', { 'Content-Length' => '5' }]],
       [['/next.png', '200 OK', {}, 'next']]
     ) do |origin|
@@ -197,7 +270,7 @@ RSpec.describe Irasutoya::Cli::Runner do
   end
 
   it 'warns once for an empty response and renders the next image' do
-    serve_previews(
+    serve_https(
       [['/empty.png', '200 OK']],
       [['/next.png', '200 OK', {}, 'image']]
     ) do |origin|
@@ -213,8 +286,8 @@ RSpec.describe Irasutoya::Cli::Runner do
   end
 
   it 'uses a separate connection across origins and closes both sessions when rendering fails' do
-    serve_previews([['/image.png', '200 OK', {}, 'image']]) do |target|
-      serve_previews([['/redirect.png', '302 Found', { 'Location' => "#{target}/image.png" }, '']]) do |origin|
+    serve_https([['/image.png', '200 OK', {}, 'image']]) do |target|
+      serve_https([['/redirect.png', '302 Found', { 'Location' => "#{target}/image.png" }, '']]) do |origin|
         allow(Irasutoya::Cli::Illustration).to receive(:random).and_return(illustration("#{origin}/redirect.png"))
         allow(Irasutoya::Cli::Preview).to receive(:show).and_raise(IOError, 'render failed')
 
@@ -233,9 +306,9 @@ RSpec.describe Irasutoya::Cli::Runner do
       start.call(host, port, **options, cert_store: store).tap { |http| sessions << http }
     end
 
-    serve_previews(%w[a1 a2 a3 a4].map { |name| ["/#{name}.png", '200 OK', {}, name] }) do |first|
-      serve_previews([['/b1.png', '200 OK', {}, 'b1']], [['/b2.png', '200 OK', {}, 'b2']]) do |second|
-        serve_previews([['/c1.png', '200 OK', {}, 'c1']]) do |third|
+    serve_https(%w[a1 a2 a3 a4].map { |name| ["/#{name}.png", '200 OK', {}, name] }) do |first|
+      serve_https([['/b1.png', '200 OK', {}, 'b1']], [['/b2.png', '200 OK', {}, 'b2']]) do |second|
+        serve_https([['/c1.png', '200 OK', {}, 'c1']]) do |third|
           urls = ["#{first}/a1.png", "#{first}/a2.png", "#{second}/b1.png", "#{first}/a3.png",
                   "#{third}/c1.png", "#{first}/a4.png", "#{second}/b2.png"]
           allow(Irasutoya::Cli::Illustration).to receive(:random).and_return(illustration(*urls))
@@ -262,7 +335,7 @@ RSpec.describe Irasutoya::Cli::Runner do
   ].each do |kind, location, error|
     it "warns once and renders the next image when the redirect location is #{kind}" do
       headers = location.nil? ? {} : { 'Location' => location }
-      serve_previews([
+      serve_https([
         ['/first.png', '302 Found', headers, ''],
         ['/second.png', '200 OK', {}, 'second']
       ]) do |origin|
@@ -282,13 +355,13 @@ RSpec.describe Irasutoya::Cli::Runner do
     Irasutoya::Irasuto.new(url:, title: 'Title', description: 'Description', image_urls:)
   end
 
-  def serve_previews(*connections)
+  def serve_https(*connections)
     TCPServer.open('127.0.0.1', 0) do |server|
       worker = Thread.new do
         tls_server = OpenSSL::SSL::SSLServer.new(server, tls_context)
         connections.each do |responses|
           tls_server.accept.tap do |socket|
-            responses.each { |response| respond_to_preview(socket, *response) }
+            responses.each { |response| respond_to_request(socket, *response) }
             expect(socket.gets).to be_nil if responses.last.length > 1
           ensure
             socket.close
@@ -304,7 +377,7 @@ RSpec.describe Irasutoya::Cli::Runner do
     end
   end
 
-  def respond_to_preview(socket, path, status = nil, headers = {}, body = '', delay = nil)
+  def respond_to_request(socket, path, status = nil, headers = {}, body = '', delay = nil)
     expect(socket.gets).to eq("GET #{path} HTTP/1.1\r\n")
     socket.to_enum(:each_line).take_while { |line| line != "\r\n" }
     return unless status

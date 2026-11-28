@@ -255,10 +255,11 @@ RSpec.describe Irasutoya::Cli::HtmlPage do
   end
 
   {
-    'search' => ['/search?q=cat', Net::HTTPServiceUnavailable.new('1.1', '503', 'Service Unavailable')],
-    'random' => ['/cat.html', Net::HTTPNotFound.new('1.1', '404', 'Not Found')],
-    'download' => ['/cat.html', Net::HTTPNotFound.new('1.1', '404', 'Not Found')]
-  }.each do |command, (path, error_response)|
+    'search' => ['/search?q=cat', Net::HTTPServiceUnavailable.new('1.1', '503', "Service\tUnavailable"),
+                 '503 Service\x09Unavailable'],
+    'random' => ['/cat.html', Net::HTTPNotFound.new('1.1', '404', "Not\tFound"), '404 Not\x09Found'],
+    'download' => ['/cat.html', Net::HTTPNotFound.new('1.1', '404', 'Not Found'), '404 Not Found']
+  }.each do |command, (path, error_response, diagnostic)|
     it "reports an HTTP error from #{command} as a CLI error without a JSON Lines record" do
       args = { 'search' => %w[search cat --jsonl], 'random' => %w[random --jsonl],
                'download' => ['download', page_url, '--output', 'unused'] }.fetch(command)
@@ -266,11 +267,7 @@ RSpec.describe Irasutoya::Cli::HtmlPage do
       response = respond(path, error_response)
       expect(response).not_to receive(:read_body)
 
-      message = "#{error_response.code} #{error_response.message} for https://#{host}#{path}"
-      message = "Could not fetch illustration page #{page_url}: #{message}" if command == 'download'
-      expect do
-        expect { Irasutoya::Cli::Runner.start(args) }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
-      end.to output("#{message}\n").to_stderr.and output('').to_stdout
+      expect_cli_error(command, args, "#{diagnostic} for https://#{host}#{path}")
     end
   end
 
