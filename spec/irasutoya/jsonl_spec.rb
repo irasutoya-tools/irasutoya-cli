@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'irasutoya'
+require 'irasutoya/cli/category_command'
 require 'irasutoya/cli/illustration'
 require 'json'
 require 'net/http'
@@ -39,6 +40,23 @@ RSpec.describe 'JSON Lines output' do
     allow(Irasutoya::Cli::Illustration).to receive(:search).with(query: 'missing').and_return([])
 
     expect { runner.start(%w[search missing --jsonl]) }.to output('').to_stdout.and output('').to_stderr
+  end
+
+  it 'prints one JSON object per category title for categories' do
+    category = instance_double(Irasutoya::Cli::Category, title: '正月')
+    allow(Irasutoya::Cli::Category).to receive(:all).and_return([category])
+
+    expect { runner.start(%w[categories --jsonl]) }
+      .to output(%({"title":"正月"}\n)).to_stdout.and output('').to_stderr
+  end
+
+  it 'prints one JSON object per illustration for browse' do
+    category = instance_double(Irasutoya::Cli::Category, fetch_irasuto_links: [link])
+    allow(Irasutoya::Cli::Category).to receive(:find).with('正月').and_return(category)
+
+    expect { runner.start(%w[browse 正月 --jsonl]) }
+      .to output(satisfy { |stdout| stdout.lines.map { |line| JSON.parse(line) } == [result] })
+      .to_stdout.and output('').to_stderr
   end
 
   it 'skips invalid links and images without sources and passes the emitted page URL to download' do

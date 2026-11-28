@@ -19,7 +19,10 @@ terminal.
 - `random` and `search {query}` print an illustration page's URL, title, description, and image
   URLs, and render an inline preview of each image in supporting terminals (iTerm2, Sixel, or an
   ANSI fallback).
-- `--jsonl` prints one JSON object per illustration page instead of text, for scripting.
+- `categories` lists the illustration categories いらすとや organizes its catalog into, and
+  `browse CATEGORY` shows images from a category the same way `search` does.
+- `--jsonl` prints one JSON object per illustration page (or category) instead of text, for
+  scripting.
 - `download` saves every image from an illustration page, or a list of pages, to a local directory
   (checkout only; see below).
 
