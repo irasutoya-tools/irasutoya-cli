@@ -4,6 +4,7 @@ require 'net/http'
 require 'open-uri'
 require 'timeout'
 require 'irasutoya/cli/https_url'
+require 'irasutoya/cli/page_url'
 require 'irasutoya/cli/transfer_deadline'
 require 'irasutoya/cli/response_body'
 require 'irasutoya/cli/session_cache'
@@ -102,7 +103,10 @@ module Irasutoya
       end
 
       def html_redirect(uri, location)
-        HttpsUrl.resolve_redirect(uri, location)
+        target = HttpsUrl.resolve_redirect(uri, location)
+        return target if PageUrl.allowed_host?(target.host)
+
+        raise Error, 'HTML redirect must be on irasutoya.com or www.irasutoya.com'
       rescue HttpsUrl::InvalidRedirect
         raise Error, 'Invalid HTTPS redirect for HTML page'
       end
