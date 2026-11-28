@@ -92,6 +92,20 @@ module Irasutoya
           @directory = directory
         end
 
+        def link_next(source, stem, extension, next_suffixes)
+          filename = stem + extension
+          next_suffixes[filename].step do |index|
+            ending = index.zero? ? extension : "-#{index}#{extension}"
+            path = link(source, stem, ending)
+            next_suffixes[filename] = index + 1
+            return path
+          rescue Errno::EEXIST
+            next
+          end
+        end
+
+        private
+
         def link(source, stem, ending)
           stem = fit_stem(stem, (@filename_limit ||= filename_limit) - ending.bytesize)
           path = File.join(@directory, "#{stem}#{ending}")
@@ -106,8 +120,6 @@ module Irasutoya
 
           raise_save_error(path, e)
         end
-
-        private
 
         def filename_limit
           return 255 unless defined?(Etc::PC_NAME_MAX)
@@ -136,9 +148,10 @@ module Irasutoya
       private_constant :ImageLink
 
       class Metadata
-        def initialize(directory, image_link)
+        def initialize(directory, image_link, next_suffixes)
           @directory = directory
           @image_link = image_link
+          @next_suffixes = next_suffixes
         end
 
         def save(illustration, saved_paths, page_uri)
@@ -161,29 +174,20 @@ module Irasutoya
           Tempfile.create('.irasutoya-', @directory) do |file|
             file.write(content)
             file.flush
-            link_file(file.path, page_uri)
+            stem = File.basename(page_uri.path, '.html')
+            @image_link.link_next(file.path, stem, '.json', @next_suffixes)
           end
         rescue SystemCallError, IOError => e
           raise SaveError, TerminalOutput.escape_controls("Could not save metadata in #{@directory}: #{e.message}")
         end
-
-        def link_file(source, page_uri)
-          stem = File.basename(page_uri.path, '.html')
-          index = 0
-          loop do
-            ending = index.zero? ? '.json' : "-#{index}.json"
-            return @image_link.link(source, stem, ending)
-          rescue Errno::EEXIST
-            index += 1
-          end
-        end
       end
       private_constant :Metadata
 
-      def initialize(page_url, directory, metadata: false)
+      def initialize(page_url, directory, metadata: false, metadata_suffixes: nil)
         @page_url = page_url
         @directory = directory
         @metadata = metadata
+        @metadata_suffixes = metadata_suffixes
       end
 
       def save(transfer, &)
@@ -238,7 +242,8 @@ module Irasutoya
       end
 
       def save_metadata(illustration, saved_paths)
-        path = Metadata.new(@directory, image_link).save(illustration, saved_paths, @page_uri)
+        metadata = Metadata.new(@directory, image_link, @metadata_suffixes || Hash.new(0))
+        path = metadata.save(illustration, saved_paths, @page_uri)
         yield path
       end
 
@@ -272,15 +277,7 @@ module Irasutoya
 
       def link_image(source, filename, next_suffixes)
         extension = File.extname(filename)
-        stem = filename.delete_suffix(extension)
-        next_suffixes[filename].step do |index|
-          ending = index.zero? ? extension : "-#{index}#{extension}"
-          path = image_link.link(source, stem, ending)
-          next_suffixes[filename] = index + 1
-          return path
-        rescue Errno::EEXIST
-          next
-        end
+        image_link.link_next(source, filename.delete_suffix(extension), extension, next_suffixes)
       end
 
       def image_link
