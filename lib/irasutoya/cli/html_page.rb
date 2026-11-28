@@ -50,8 +50,10 @@ module Irasutoya
       end
 
       def request_html(uri, fetch, sessions, &)
-        with_html_connection(uri, sessions) do |http|
-          fetch.with_connection(http) { get_html(http, uri, &) }
+        with_page_connection(uri, sessions) do |http|
+          redirect = fetch.with_connection(http) { get_html(http, uri, &) }
+          # Redirects return before Net::HTTP consumes their bodies.
+          return redirect if redirect
         end
       rescue EOFError
         raise Error, "Incomplete HTML response from #{uri}"
@@ -72,16 +74,15 @@ module Irasutoya
         nil
       end
 
-      def with_html_connection(uri, sessions, &)
+      def with_page_connection(uri, sessions, &)
         options = { use_ssl: true, max_retries: 0, ignore_eof: false }
         return Net::HTTP.start(uri.hostname, uri.port, **options, &) unless sessions
 
         origin = [uri.scheme, uri.hostname.downcase, uri.port]
         http = sessions.fetch(origin) { Net::HTTP.start(uri.hostname, uri.port, **options) }
-        redirect = yield http
-        # Redirects return before Net::HTTP consumes their bodies.
-        completed = redirect.nil?
-        redirect
+        result = yield http
+        completed = true
+        result
       ensure
         sessions&.discard(origin) unless completed
       end
