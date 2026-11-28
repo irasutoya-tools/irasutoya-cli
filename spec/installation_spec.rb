@@ -3,11 +3,18 @@
 RSpec.describe 'Installation instructions' do
   let(:readme) { File.read(File.expand_path('../README.md', __dir__)) }
 
-  it 'documents the gemspec Ruby requirement beside the installation command' do
-    gemspec = Gem::Specification.load(File.expand_path('../irasutoya-cli.gemspec', __dir__))
+  it 'documents the published gem Ruby requirement beside the installation command' do
     installation = readme[/^## Installation\n(.*?)(?=^## |\z)/m, 1]
-    prerequisite = /^Ruby (\d+(?:\.\d+)+) or newer is required\.\n\n```sh\n\$ gem install irasutoya-cli$/
-    minimum = installation&.match(prerequisite)
+
+    prerequisite = 'The RubyGems release (1.0.1) requires Ruby 3.1 or newer.'
+
+    expect(installation).to include("#{prerequisite}\n\n```sh\n$ gem install irasutoya-cli\n")
+  end
+
+  it 'documents the checkout Ruby requirement from the current gemspec' do
+    gemspec = Gem::Specification.load(File.expand_path('../irasutoya-cli.gemspec', __dir__))
+    checkout = readme[/^## Download images from a checkout\n(.*?)(?=^## |\z)/m, 1]
+    minimum = checkout.match(/^The checkout requires Ruby (\d+(?:\.\d+)+) or newer\./)
 
     expect(minimum).not_to be_nil
     expect(Gem::Requirement.new(">= #{minimum[1]}")).to eq(gemspec.required_ruby_version)
