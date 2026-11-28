@@ -781,6 +781,50 @@ RSpec.describe 'irasutoya download' do
     let(:input_path) { File.join(@workspace, 'pages.txt') }
     let(:second_url) { 'https://www.irasutoya.com/2026/01/dog.html' }
 
+    shared_examples 'a bounded URL list' do
+      let(:oversized_line) { 'é' * 12_289 }
+
+      it 'reports one failure for an oversized line and downloads the next entry' do
+        contents = "\n#{oversized_line}\r\n#{page_url.ljust(8192)}\n"
+        paths = %w[cat.png cat-1.png].map { |name| File.join(directory, name) }
+
+        expect do
+          expect { run_input(contents) }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+        end.to output("Line 2: Could not download page: URL list entry exceeds 8192 bytes.\n" \
+                      "Failed to download 1 page(s).\n").to_stderr
+          .and output(paths.map { |path| "Saved: #{path}\n" }.join).to_stdout
+        expect(paths.map { |path| File.binread(path) }).to eq(image_data)
+      end
+
+      it 'reports one failure when an oversized line ends at EOF' do
+        expect do
+          expect { run_input('é' * 4097) }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+        end.to output("Line 1: Could not download page: URL list entry exceeds 8192 bytes.\n" \
+                      "Failed to download 1 page(s).\n").to_stderr
+      end
+    end
+
+    context 'from a file' do
+      include_examples 'a bounded URL list'
+
+      def run_input(contents)
+        File.binwrite(input_path, contents)
+        run_list('--input', input_path)
+      end
+    end
+
+    context 'from stdin' do
+      include_examples 'a bounded URL list'
+
+      def run_input(contents)
+        original_stdin = $stdin
+        $stdin = StringIO.new(contents)
+        run_list('--input', '-')
+      ensure
+        $stdin = original_stdin
+      end
+    end
+
     it 'processes file entries in order, reuses one image connection across pages, and avoids filename collisions' do
       second_link = double(fetch_irasuto: double(image_urls: [image_urls.last]))
       allow(Irasutoya::IrasutoLink).to receive(:new).with(title: nil, show_url: second_url).and_return(second_link)
