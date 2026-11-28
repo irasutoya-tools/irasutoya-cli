@@ -309,14 +309,13 @@ RSpec.describe Irasutoya::Cli::HtmlPage do
     final_path = '/2026/01/cat.html'
     redirect = respond('/cat.html', Net::HTTPFound.new('1.1', '302', 'Found'))
     redirect['location'] = "https://#{final_host}#{final_path}"
-    page_http = instance_double(Net::HTTP)
-    image_http = instance_double(Net::HTTP, finish: nil)
+    detail_http = instance_double(Net::HTTP, started?: true, finish: nil)
     http_options = { use_ssl: true, max_retries: 0, ignore_eof: false }
     allow(Net::HTTP).to receive(:start).with(final_host, 443, **http_options) do |*_, &request|
-      request ? request.call(page_http) : image_http
+      request ? request.call(detail_http) : detail_http
     end
     page = Net::HTTPOK.new('1.1', '200', 'OK')
-    allow(page_http).to receive(:request_get).with(final_path, headers).and_yield(page)
+    allow(detail_http).to receive(:request_get).with(final_path, headers).and_yield(page)
     allow(page).to receive(:read_body).and_yield(
       '<div class="entry"><img src="/images/root.png"><img src="images/relative.png"></div>'
     )
@@ -327,7 +326,7 @@ RSpec.describe Irasutoya::Cli::HtmlPage do
     image_paths.zip(image_data).each do |path, data|
       image = Net::HTTPOK.new('1.1', '200', 'OK')
       allow(image).to receive(:read_body).and_yield(data)
-      expect(image_http).to receive(:request_get).with(path, headers).twice.and_yield(image)
+      expect(detail_http).to receive(:request_get).with(path, headers).twice.and_yield(image)
     end
 
     allow(Irasutoya::Cli::Illustration).to receive(:random_url).and_return(page_url)
