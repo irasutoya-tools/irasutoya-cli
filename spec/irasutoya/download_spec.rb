@@ -295,6 +295,15 @@ RSpec.describe 'irasutoya download' do
     end
   end
 
+  it 'reports a malformed Content-Length and keeps only the completed image' do
+    response = stub_image(image_urls.last, image_data.last)
+    response['Content-Length'] = 'oops'
+    expect(response).not_to receive(:read_body)
+
+    expect_failed_download('wrong Content-Length format')
+    expect(http).to have_received(:finish).once
+  end
+
   it 'reports the failed URL and discards the partial image when a read times out' do
     response = stub_image(image_urls.last, image_data.last)
     error = Net::ReadTimeout.new

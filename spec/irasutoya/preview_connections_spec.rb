@@ -196,6 +196,24 @@ RSpec.describe Irasutoya::Cli::Runner do
     end
   end
 
+  it 'warns once for a malformed Content-Length and previews the next image on a fresh connection' do
+    serve_previews(
+      [['/malformed.png', '200 OK', { 'Content-Length' => 'oops' }]],
+      [['/next.png', '200 OK', {}, 'next']]
+    ) do |origin|
+      malformed_url = "#{origin}/malformed.png"
+      allow(Irasutoya::Cli::Illustration).to receive(:random)
+        .and_return(illustration(malformed_url, "#{origin}/next.png"))
+
+      Timeout.timeout(5) { runner.random }
+
+      expect(runner).to have_received(:say)
+        .with("warn: Could not preview #{malformed_url}: wrong Content-Length format", :yellow).once
+      expect(runner).to have_received(:say).with(start_with('warn:'), :yellow).once
+      expect(rendered).to eq(['next'])
+    end
+  end
+
   it 'warns once for an empty response and renders the next image' do
     serve_previews(
       [['/empty.png', '200 OK']],
