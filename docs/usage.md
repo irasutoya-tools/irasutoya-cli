@@ -6,7 +6,7 @@ title: CLI reference
 # CLI reference
 
 These examples use the current checkout. Follow the
-[checkout setup instructions](../README.md#download-images-from-a-checkout)
+[checkout setup instructions](https://github.com/irasutoya-tools/irasutoya-cli/blob/master/README.md#download-images-from-a-checkout)
 before running them, or see [Getting started](getting-started.md) for a
 guided first walkthrough.
 
