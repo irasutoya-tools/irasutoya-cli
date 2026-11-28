@@ -58,13 +58,15 @@ RSpec.describe 'ANSI image previews' do
   end
 
   describe 'bounded previews' do
+    before { allow(TerminalImage).to receive(:which).and_call_original }
+
     let(:image) { ChunkyPNG::Image.new(1, 1, ChunkyPNG::Color.rgb(12, 34, 56)) }
     let(:valid_png) { image.to_blob }
     let(:urls) { %w[http://example.com/first.png http://example.com/second.png] }
 
     it 'renders a converted GIF whose PNG output fits the byte budget' do
       stub_const('Irasutoya::Cli::PreviewConversion::MAX_PNG_BYTES', valid_png.bytesize)
-      with_converter("STDOUT.binmode; STDOUT.write(#{valid_png.dump})") do
+      with_converter(png_output_code) do
         expect { Irasutoya::Cli::Preview.show(StringIO.new(gif)) }
           .to output(/\e\[38;2;12;34;56m/).to_stdout
       end
@@ -89,7 +91,6 @@ RSpec.describe 'ANSI image previews' do
     end
 
     it 'reports ImageMagick as unavailable when the detected executable cannot be started' do
-      allow(TerminalImage).to receive(:which).and_call_original
       allow(TerminalImage).to receive(:which).with('magick').and_return(File.join(__dir__, 'missing-magick'))
 
       expect { Irasutoya::Cli::Preview.show(StringIO.new(gif)) }
@@ -104,7 +105,7 @@ RSpec.describe 'ANSI image previews' do
 
     it 'reuses a successful ImageMagick probe across several previews in the same command' do
       gif_urls = %w[http://example.com/first.gif http://example.com/second.gif]
-      with_converter("STDOUT.binmode; STDOUT.write(#{valid_png.dump})") do |_pid_file, version_calls_file|
+      with_converter(png_output_code) do |_pid_file, version_calls_file|
         render_previews(gif_urls, [gif, gif])
 
         expect(File.read(version_calls_file)).to eq('1')
@@ -112,32 +113,34 @@ RSpec.describe 'ANSI image previews' do
     end
 
     it 'reuses the renderer detection across several previews in the same command' do
-      allow(TerminalImage).to receive(:which).and_call_original
-
       render_previews(urls, [valid_png, valid_png])
 
       expect(TerminalImage).to have_received(:which).with('img2sixel').once
     end
 
+    {
+      stalled: 'sleep 10',
+      oversized: "STDOUT.sync = true; STDOUT.write('a' * (16 * 1024 + 1)); sleep 10"
+    }.each do |failure, version_code|
+      it "reaps the #{failure} version probe and reuses the fallback converter for both GIFs" do
+        stub_const('Irasutoya::Cli::PreviewConversion::CONVERSION_TIMEOUT', 2)
+        gif_urls = %w[http://example.com/first.gif http://example.com/second.gif]
+        with_converter('abort', version_code:) do |pid_file, magick_calls|
+          with_converter(png_output_code, name: 'convert') do |_fallback_pid, convert_calls|
+            render_previews(gif_urls, [gif, gif])
+
+            expect_reaped(pid_file)
+            expect(File.read(magick_calls)).to eq('1')
+            expect(File.read(convert_calls)).to eq('1')
+          end
+        end
+      end
+    end
+
     it 'discovers another available converter after the selected executable disappears' do
       gif_urls = %w[http://example.com/first.gif http://example.com/second.gif]
       with_converter('abort', remove_after_version: true) do
-        Dir.mktmpdir do |dir|
-          fallback = File.join(dir, 'convert')
-          File.write(fallback, <<~RUBY)
-            #!#{RbConfig.ruby}
-            abort unless ARGV == ['-version'] || ARGV.last(2) == ['-[0]', 'png:-']
-            if ARGV == ['-version']
-              puts 'ImageMagick test converter'
-              exit
-            end
-            abort unless STDIN.binmode.read == #{gif.dump}.b
-            STDOUT.binmode
-            STDOUT.write(#{valid_png.dump})
-          RUBY
-          File.chmod(0o755, fallback)
-          allow(TerminalImage).to receive(:which).with('convert').and_return(fallback)
-
+        with_converter(png_output_code, name: 'convert') do
           warning = "warn: Could not preview #{gif_urls.first}: ImageMagick could not convert the image to PNG"
           render_previews(gif_urls, [gif, gif], warning:)
         end
@@ -274,9 +277,14 @@ RSpec.describe 'ANSI image previews' do
       expect_preview_recovery(datastream.to_blob)
     end
 
-    def with_converter(code, remove_after_version: false)
+    def png_output_code
+      "STDOUT.binmode; STDOUT.write(#{valid_png.dump})"
+    end
+
+    def with_converter(code, name: 'magick', version_code: "puts 'ImageMagick test converter'",
+                       remove_after_version: false)
       Dir.mktmpdir do |dir|
-        converter = File.join(dir, 'magick')
+        converter = File.join(dir, name)
         pid_file = File.join(dir, 'converter.pid')
         version_calls_file = File.join(dir, 'version_calls')
         File.write(converter, <<~RUBY)
@@ -285,7 +293,8 @@ RSpec.describe 'ANSI image previews' do
           if ARGV == ['-version']
             calls = File.exist?(#{version_calls_file.dump}) ? Integer(File.read(#{version_calls_file.dump})) : 0
             File.write(#{version_calls_file.dump}, calls + 1)
-            puts 'ImageMagick test converter'
+            File.write(#{pid_file.dump}, Process.pid)
+            #{version_code}
             File.unlink(__FILE__) if #{remove_after_version}
             exit
           end
@@ -294,8 +303,7 @@ RSpec.describe 'ANSI image previews' do
           #{code}
         RUBY
         File.chmod(0o755, converter)
-        allow(TerminalImage).to receive(:which).and_call_original
-        allow(TerminalImage).to receive(:which).with('magick').and_return(converter)
+        allow(TerminalImage).to receive(:which).with(name).and_return(converter)
         yield pid_file, version_calls_file
       end
     end

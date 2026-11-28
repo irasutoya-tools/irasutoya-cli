@@ -60,7 +60,7 @@ module Irasutoya
         def image_magick?(command)
           version, status = capture([command, '-version'], MAX_VERSION_BYTES, err: %i[child out])
           status.success? && version.include?('ImageMagick')
-        rescue SystemCallError
+        rescue SystemCallError, TerminalImage::UnsupportedFormat
           false
         end
 
