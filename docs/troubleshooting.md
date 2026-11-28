@@ -9,7 +9,7 @@ title: FAQ and troubleshooting
 
 Version 1.0.1 does not include `download` or the `--jsonl` option for
 `search` and `random`. Follow the
-[checkout setup instructions](../README.md#download-images-from-a-checkout)
+[checkout setup instructions](https://github.com/irasutoya-tools/irasutoya-cli/blob/master/README.md#download-images-from-a-checkout)
 and run `bundle exec exe/irasutoya help` from the repository directory to see
 the checkout's commands. The [CLI reference](usage.md) uses that executable.
 
