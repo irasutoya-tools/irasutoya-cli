@@ -136,7 +136,7 @@ module Irasutoya
         origin = [uri.scheme, uri.hostname&.downcase, uri.port]
         deadline.with_connection(session(uri, origin), &)
         completed = true
-      rescue Net::HTTPExceptions, EOFError, SocketError, OpenSSL::SSL::SSLError,
+      rescue Net::HTTPExceptions, Net::HTTPHeaderSyntaxError, EOFError, SocketError, OpenSSL::SSL::SSLError,
              Net::OpenTimeout, Net::ReadTimeout, Net::WriteTimeout,
              Errno::ECONNREFUSED, Errno::ECONNRESET, Errno::ECONNABORTED, Errno::EPIPE,
              Errno::ETIMEDOUT, Errno::EHOSTUNREACH, Errno::ENETUNREACH => e

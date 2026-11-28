@@ -364,6 +364,15 @@ RSpec.describe 'irasutoya download' do
     expect(File.binread(path)).to eq(image_data.first)
   end
 
+  it 'reports a malformed Content-Length and keeps only completed images' do
+    response = stub_image(image_urls.last, image_data.last)
+    response['Content-Length'] = 'oops'
+    expect(response).not_to receive(:read_body)
+
+    expect_failed_download('wrong Content-Length format')
+    expect(http).to have_received(:finish).once
+  end
+
   it 'reports an oversized Content-Length before reading the body and removes its temporary file' do
     limit = image_data.first.bytesize
     stub_const('Irasutoya::Cli::ImageTransfer::MAX_IMAGE_BYTES', limit)

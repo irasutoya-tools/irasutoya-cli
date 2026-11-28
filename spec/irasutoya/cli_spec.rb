@@ -369,6 +369,16 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
           include_examples 'a recoverable preview failure'
         end
 
+        context 'when an image has a malformed Content-Length' do
+          let(:message) { 'wrong Content-Length format' }
+
+          before do
+            responses.fetch('/test.png')['Content-Length'] = 'oops'
+          end
+
+          include_examples 'a recoverable preview failure'
+        end
+
         context 'when an image download returns partial content' do
           let(:message) { 'HTTP 206 Partial Content' }
 
