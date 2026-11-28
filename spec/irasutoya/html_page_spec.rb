@@ -310,6 +310,27 @@ RSpec.describe Irasutoya::Cli::HtmlPage do
       .to raise_error(described_class::Error, 'Too many HTML redirects')
   end
 
+  it 'follows an HTTPS redirect to the other Irasutoya host' do
+    redirect = respond('/cat.html', Net::HTTPFound.new('1.1', '302', 'Found'))
+    redirect['location'] = 'https://irasutoya.com/next'
+    expect(Net::HTTP).to receive(:start).with('irasutoya.com', 443, any_args).and_yield(http)
+    allow(respond('/next')).to receive(:read_body).and_yield(detail)
+
+    expect(Irasutoya::Cli::Illustration.fetch_page_and_parse(page_url).at_css('img')['src'])
+      .to eq('https://example.com/cat.png')
+  end
+
+  it 'rejects an off-site HTTPS redirect later in the chain before connecting' do
+    first = respond('/cat.html', Net::HTTPFound.new('1.1', '302', 'Found'))
+    first['location'] = '/next.html'
+    second = respond('/next.html', Net::HTTPFound.new('1.1', '302', 'Found'))
+    second['location'] = 'https://example.com:8443/cat.html'
+    expect(Net::HTTP).not_to receive(:start).with('example.com', 8443, any_args)
+
+    expect { Irasutoya::Cli::Illustration.fetch_page_and_parse(page_url) }
+      .to raise_error(described_class::Error, 'HTML redirect must be on irasutoya.com or www.irasutoya.com')
+  end
+
   { missing: nil, empty: '', blank: ' ' }.each do |kind, location|
     it "rejects a #{kind} Location header without making a second request" do
       redirect = Net::HTTPFound.new('1.1', '302', 'Found')
@@ -396,12 +417,12 @@ RSpec.describe Irasutoya::Cli::HtmlPage do
     store = OpenSSL::X509::Store.new
     store.add_cert(context.cert)
     allow(Net::HTTP).to receive(:start).and_wrap_original do |start, host, port, **options, &request|
-      start.call(host, port, nil, **options, cert_store: store, read_timeout: 1, &request)
+      start.call(host, port, nil, **options, ipaddr: '127.0.0.1', cert_store: store, read_timeout: 1, &request)
     end
 
     TCPServer.open('127.0.0.1', 0) do |server|
       tls_server = OpenSSL::SSL::SSLServer.new(server, context)
-      yield tls_server, "https://127.0.0.1:#{server.addr[1]}/cat.html"
+      yield tls_server, "https://#{host}:#{server.addr[1]}/cat.html"
     end
   end
 
