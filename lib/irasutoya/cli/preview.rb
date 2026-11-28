@@ -41,7 +41,7 @@ module Irasutoya
       # raises instead of printing a blank preview when the subprocess exits unsuccessfully.
       def self.show_sixel(file, command)
         output, status = PreviewConversion.with_input(file) do |input|
-          ProcessCapture.new(SIXEL_TIMEOUT).capture([command], MAX_SIXEL_BYTES, in: input)
+          ProcessCapture.new(SIXEL_TIMEOUT).capture([[command, 'img2sixel']], MAX_SIXEL_BYTES, in: input)
         end
         raise TerminalImage::UnsupportedTerminal, 'img2sixel could not render the preview' unless status.success?
 
