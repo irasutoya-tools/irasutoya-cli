@@ -46,8 +46,10 @@ module Irasutoya
       method_option :jsonl, **JSONL_OPTION
       def browse(category_title)
         require 'irasutoya/cli/category_command'
-        links = CategoryCommand.new.browse(category_title)
-        HtmlPage.with_sessions { with_preview_sessions { display_results(links) } }
+        HtmlPage.with_sessions do
+          links = CategoryCommand.new.browse(category_title)
+          with_preview_sessions { display_results(links) }
+        end
       rescue HtmlPage::Error => e
         raise Thor::Error, e.message
       end

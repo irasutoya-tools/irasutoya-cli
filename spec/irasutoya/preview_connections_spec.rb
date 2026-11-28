@@ -55,7 +55,7 @@ RSpec.describe Irasutoya::Cli::Runner do
     it 'sends both GETs on one HTTPS connection for the same origin' do
       url = "https://#{feed_host}/cat.html"
       serve_https([feed_response(url), detail_response]) do |origin|
-        route_random_requests(feed_host => origin)
+        route_https_requests(feed_host => origin)
 
         runner.random
 
@@ -68,7 +68,7 @@ RSpec.describe Irasutoya::Cli::Runner do
       url = "https://#{detail_host}/cat.html"
       serve_https([detail_response]) do |detail_origin|
         serve_https([feed_response(url)]) do |feed_origin|
-          route_random_requests(feed_host => feed_origin, detail_host => detail_origin)
+          route_https_requests(feed_host => feed_origin, detail_host => detail_origin)
 
           runner.random
 
@@ -92,7 +92,7 @@ RSpec.describe Irasutoya::Cli::Runner do
     def expect_feed_retry(response, error)
       url = "https://#{feed_host}/cat.html"
       serve_https([response], [feed_response(url), detail_response]) do |origin|
-        route_random_requests(feed_host => origin)
+        route_https_requests(feed_host => origin)
 
         Irasutoya::Cli::HtmlPage.with_sessions do
           expect { Irasutoya::Cli::Illustration.random }.to raise_error(Irasutoya::Cli::Illustration::FeedError, error)
@@ -105,14 +105,29 @@ RSpec.describe Irasutoya::Cli::Runner do
       entry = { link: [{ rel: 'alternate', href: url }] }
       [feed_path, '200 OK', {}, "callback(#{JSON.generate(feed: { entry: [entry] })});"]
     end
+  end
 
-    def route_random_requests(origins)
-      store = OpenSSL::X509::Store.new
-      store.add_cert(certificate)
-      allow(Net::HTTP).to receive(:start).and_wrap_original do |start, host, _port, **options, &block|
-        target = URI(origins.fetch(host))
-        start.call(target.host, target.port, nil, **options, cert_store: store, open_timeout: 2, read_timeout: 2, &block)
-      end
+  it 'reuses one HTTPS connection for the homepage, category page, and illustration detail when browsing' do
+    host = 'www.irasutoya.com'
+    detail_url = "https://#{host}/cat.html"
+    homepage = <<~HTML
+      <div id="sidebar-wrapper"><div class="widget">
+        <h2>詳細カテゴリー</h2>
+        <a href="https://#{host}/search/label/Cats">Cats</a>
+      </div></div>
+    HTML
+    listing = %(<div class="box"><a href="#{detail_url}"></a><a>Cat</a></div>)
+    serve_https([
+      ['/', '200 OK', { 'Content-Type' => 'text/html; charset=utf-8' }, homepage],
+      ['/search/label/Cats', '200 OK', {}, listing],
+      ['/cat.html', '200 OK', {}, '<div class="entry">Cat</div>']
+    ]) do |origin|
+      route_https_requests(host => origin)
+
+      runner.browse('Cats')
+
+      expect(runner).to have_received(:say).with("Page URL:    #{detail_url}")
+      expect(Net::HTTP).to have_received(:start).once
     end
   end
 
@@ -353,6 +368,15 @@ RSpec.describe Irasutoya::Cli::Runner do
 
   def illustration(*image_urls, url: page_url)
     Irasutoya::Irasuto.new(url:, title: 'Title', description: 'Description', image_urls:)
+  end
+
+  def route_https_requests(origins)
+    store = OpenSSL::X509::Store.new
+    store.add_cert(certificate)
+    allow(Net::HTTP).to receive(:start).and_wrap_original do |start, host, _port, **options, &block|
+      target = URI(origins.fetch(host))
+      start.call(target.host, target.port, nil, **options, cert_store: store, open_timeout: 2, read_timeout: 2, &block)
+    end
   end
 
   def serve_https(*connections)
