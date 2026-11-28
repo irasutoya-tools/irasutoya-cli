@@ -31,8 +31,8 @@ module Irasutoya
       def random
         require 'irasutoya/cli/illustration'
         with_preview_sessions { display(HtmlPage.with_sessions { Illustration.random }) }
-      rescue HtmlPage::Error, Illustration::FeedError, URI::InvalidURIError => e
-        raise Thor::Error, e.message
+      rescue HtmlPage::Error, Illustration::FeedError, OpenURI::HTTPError, URI::InvalidURIError => e
+        raise Thor::Error, escape_controls(e.message)
       end
 
       desc 'search {query}', 'Shows images from up to three result pages. Each page can contain multiple images.'
@@ -40,8 +40,8 @@ module Irasutoya
       def search(query)
         require 'irasutoya/cli/illustration'
         HtmlPage.with_sessions { with_preview_sessions { display_search_results(query) } }
-      rescue HtmlPage::Error => e
-        raise Thor::Error, e.message
+      rescue HtmlPage::Error, OpenURI::HTTPError => e
+        raise Thor::Error, escape_controls(e.message)
       end
 
       desc 'download [PAGE_URL]', 'Saves all images from an illustration page or a list of pages'

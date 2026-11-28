@@ -283,12 +283,29 @@ RSpec.describe Irasutoya::Cli::HtmlPage do
     end
   end
 
+  {
+    'search' => ['/search?q=cat', Net::HTTPServiceUnavailable.new('1.1', '503', "Service\tUnavailable"),
+                 '503 Service\x09Unavailable'],
+    'random' => ['/cat.html', Net::HTTPNotFound.new('1.1', '404', "Not\tFound"), '404 Not\x09Found'],
+    'download' => ['/cat.html', Net::HTTPNotFound.new('1.1', '404', 'Not Found'), '404 Not Found']
+  }.each do |command, (path, error_response, diagnostic)|
+    it "reports an HTTP error from #{command} as a CLI error without a JSON Lines record" do
+      args = { 'search' => %w[search cat --jsonl], 'random' => %w[random --jsonl],
+               'download' => ['download', page_url, '--output', 'unused'] }.fetch(command)
+      allow(Irasutoya::Cli::Illustration).to receive(:random_url).and_return(page_url) if command == 'random'
+      response = respond(path, error_response)
+      expect(response).not_to receive(:read_body)
+
+      expect_cli_error(command, args, "#{diagnostic} for https://#{host}#{path}")
+    end
+  end
+
   it 'does not read an error response body' do
     response = respond('/cat.html', Net::HTTPNotFound.new('1.1', '404', 'Not Found'))
     expect(response).not_to receive(:read_body)
 
     expect { Irasutoya::Cli::Illustration.fetch_page_and_parse(page_url) }
-      .to raise_error(OpenURI::HTTPError, '404 Not Found')
+      .to raise_error(OpenURI::HTTPError, "404 Not Found for #{page_url}")
   end
 
   it 'follows a relative redirect without reading its body' do
