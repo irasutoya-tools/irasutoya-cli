@@ -251,6 +251,18 @@ RSpec.describe Irasutoya::Cli::HtmlPage do
 
         expect_cli_error(command, args, "Could not resolve host for https://#{host}#{path}")
       end
+
+      it 'reports a connection refusal as a CLI error' do
+        expect(Net::HTTP).to receive(:start).with(host, 443, any_args).once.and_raise(Errno::ECONNREFUSED)
+
+        expect_cli_error(command, args, "Could not fetch https://#{host}#{path}: #{Errno::ECONNREFUSED.new.message}")
+      end
+
+      it 'reports a TLS handshake failure as a CLI error' do
+        expect(Net::HTTP).to receive(:start).with(host, 443, any_args).once.and_raise(OpenSSL::SSL::SSLError, 'certificate verify failed')
+
+        expect_cli_error(command, args, "Could not fetch https://#{host}#{path}: certificate verify failed")
+      end
     end
   end
 

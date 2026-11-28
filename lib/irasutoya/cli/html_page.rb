@@ -55,12 +55,19 @@ module Irasutoya
           # Redirects return before Net::HTTP consumes their bodies.
           return redirect if redirect
         end
-      rescue EOFError
-        raise Error, "Incomplete HTML response from #{uri}"
-      rescue SocketError
-        raise Error, "Could not resolve host for #{uri}"
-      rescue Timeout::Error
-        raise Error, "HTML request timed out for #{uri}"
+      rescue EOFError, SocketError, Timeout::Error, Net::HTTPExceptions, OpenSSL::SSL::SSLError,
+             Errno::ECONNREFUSED, Errno::ECONNRESET, Errno::ECONNABORTED, Errno::EPIPE,
+             Errno::ETIMEDOUT, Errno::EHOSTUNREACH, Errno::ENETUNREACH => e
+        raise Error, html_connection_error_message(uri, e)
+      end
+
+      def html_connection_error_message(uri, error)
+        case error
+        when EOFError then "Incomplete HTML response from #{uri}"
+        when SocketError then "Could not resolve host for #{uri}"
+        when Timeout::Error then "HTML request timed out for #{uri}"
+        else "Could not fetch #{uri}: #{error.message}"
+        end
       end
 
       def get_html(http, uri)
