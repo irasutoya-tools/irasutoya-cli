@@ -67,8 +67,8 @@ object per illustration page instead of text, then feed a `page_url` into
 `download`:
 
 ```sh
-$ page_url=$(bundle exec exe/irasutoya search '猫' --jsonl | jq -ser '.[0].page_url // empty')
-$ bundle exec exe/irasutoya download "$page_url" --output ./images
+$ page_url=$(bundle exec exe/irasutoya search '猫' --jsonl | jq -ser '.[0].page_url // empty') &&
+  bundle exec exe/irasutoya download "$page_url" --output ./images
 ```
 
 ## Next steps
