@@ -186,13 +186,12 @@ module Irasutoya
         @metadata = metadata
       end
 
-      def save(transfer, &)
+      def save(transfer, next_suffixes = Hash.new(0), &)
         illustration = fetch_illustration
         images = illustration.image_urls
         raise SaveError, "No images found on #{@page_url}" if images.empty?
 
         prepare_directory
-        next_suffixes = Hash.new(0)
         saved_paths = images.map { |url| save_image(url, next_suffixes, transfer, &) }
         save_metadata(illustration, saved_paths, &) if @metadata
       end
@@ -224,7 +223,7 @@ module Irasutoya
       rescue URI::InvalidURIError => e
         raise SaveError, TerminalOutput.escape_controls("Could not download #{url}: #{e.message}")
       rescue ImageTransfer::ResponseError => e
-        raise SaveError, "Could not fetch image #{url}: #{e.message}"
+        raise SaveError, TerminalOutput.escape_controls("Could not fetch image #{url}: #{e.message}")
       end
 
       def download_and_link_image(uri, next_suffixes, transfer)
@@ -263,7 +262,7 @@ module Irasutoya
       rescue ImageTransfer::SizeLimitExceededError
         raise SaveError, "Image download exceeds the #{ImageTransfer::MAX_IMAGE_BYTES}-byte limit"
       rescue ImageTransfer::IncompleteBodyError => e
-        raise SaveError, "Incomplete image download from #{uri}: #{e.message}"
+        raise SaveError, TerminalOutput.escape_controls("Incomplete image download from #{uri}: #{e.message}")
       rescue ImageTransfer::TooManyRedirectsError
         raise SaveError, 'Too many image download redirects'
       rescue ImageTransfer::InsecureRedirectError

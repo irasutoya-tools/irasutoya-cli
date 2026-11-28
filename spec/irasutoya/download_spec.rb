@@ -23,7 +23,13 @@ RSpec.describe 'irasutoya download' do
   let(:link) do
     Irasutoya::IrasutoLink.new(title: nil, show_url: page_url).extend(Irasutoya::Cli::HtmlPage)
   end
-  let(:http) { instance_double(Net::HTTP, started?: true, finish: nil) }
+  let(:http) do
+    instance_double(Net::HTTP).tap do |double|
+      finished = false
+      allow(double).to receive(:started?) { !finished }
+      allow(double).to receive(:finish) { finished = true }
+    end
+  end
   let(:request_headers) { { 'Accept-Encoding' => 'identity' } }
 
   around do |example|
@@ -334,6 +340,14 @@ RSpec.describe 'irasutoya download' do
     expect(File.binread(path)).to eq(image_data.first)
   end
 
+  it 'escapes terminal controls in an image transfer failure message' do
+    allow(http).to receive(:request_get).with(URI.parse(image_urls.last).request_uri, request_headers) do
+      raise EOFError, "connection reset\e[0m\r\nTry again"
+    end
+
+    expect_failed_download('connection reset\x1B[0m\x0D\x0ATry again')
+  end
+
   it 'reports a connection closed before headers and only announces and keeps the completed image' do
     allow(http).to receive(:request_get).with(URI.parse(image_urls.last).request_uri, request_headers) do
       Net::HTTPResponse.read_new(Net::BufferedIO.new(StringIO.new('')))
@@ -570,6 +584,22 @@ RSpec.describe 'irasutoya download' do
       expect do
         expect { run_download }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
       end.to output("Incomplete image download from #{image_urls.last}: expected 12 bytes, received 5\n").to_stderr
+    end.to output("Saved: #{File.join(directory, 'cat.png')}\n").to_stdout
+    expect(Dir.children(directory)).to eq(['cat.png'])
+  end
+
+  it 'escapes terminal controls in an incomplete image download error' do
+    response = stub_image(image_urls.last, image_data.last)
+    allow(response).to receive(:read_body) do |&receive_chunk|
+      receive_chunk.call('partial')
+      raise EOFError, "connection reset\e[0m\r\nTry again"
+    end
+    escaped_error = "Incomplete image download from #{image_urls.last}: connection reset\\x1B[0m\\x0D\\x0ATry again\n"
+
+    expect do
+      expect do
+        expect { run_download }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      end.to output(escaped_error).to_stderr
     end.to output("Saved: #{File.join(directory, 'cat.png')}\n").to_stdout
     expect(Dir.children(directory)).to eq(['cat.png'])
   end
@@ -829,6 +859,22 @@ RSpec.describe 'irasutoya download' do
       expect(paths.map { |path| File.binread(path) }).to eq([*image_data, image_data.first, *image_data])
     ensure
       $stdin = original_stdin
+    end
+
+    context 'with many entries sharing one filename' do
+      let(:image_urls) { ['https://example.com/cat.png'] }
+      let(:count) { 100 }
+
+      it 'reuses suffix progress across pages instead of replaying earlier claims' do
+        File.write(input_path, "#{Array.new(count, page_url).join("\n")}\n")
+        expect(File).to receive(:link).exactly(count).times.and_call_original
+
+        expect { run_list('--input', input_path) }.to output(/\A(Saved: .+\n){#{count}}\z/).to_stdout
+
+        names = %w[cat.png] + (1...count).map { |index| "cat-#{index}.png" }
+        expect(Dir.children(directory)).to match_array(names)
+        expect(names.map { |name| File.binread(File.join(directory, name)) }).to all(eq(image_data.first))
+      end
     end
 
     [Net::HTTPBadResponse, Net::HTTPHeaderSyntaxError].each do |error_class|

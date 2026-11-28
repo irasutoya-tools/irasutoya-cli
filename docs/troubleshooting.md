@@ -1,3 +1,8 @@
+---
+layout: page
+title: FAQ and troubleshooting
+---
+
 # FAQ and troubleshooting
 
 ## Why does the installed gem reject `download` or `--jsonl`?
