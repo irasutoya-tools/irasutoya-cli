@@ -240,6 +240,12 @@ RSpec.describe Irasutoya::Cli::HtmlPage do
         allow(Irasutoya::Cli::Illustration).to receive(:random_url).and_return(page_url) if command == 'random'
       end
 
+      it 'reports the HTTP status without terminal controls from the reason phrase' do
+        respond(path, Net::HTTPServiceUnavailable.new('1.1', '503', "Service\tUnavailable\e[2J"))
+
+        expect_cli_error(command, args, 'HTTP 503')
+      end
+
       it 'reports a read timeout as a CLI error' do
         allow(respond(path)).to receive(:read_body).and_raise(Net::ReadTimeout)
 
@@ -259,7 +265,7 @@ RSpec.describe Irasutoya::Cli::HtmlPage do
     expect(response).not_to receive(:read_body)
 
     expect { Irasutoya::Cli::Illustration.fetch_page_and_parse(page_url) }
-      .to raise_error(OpenURI::HTTPError, '404 Not Found')
+      .to raise_error(OpenURI::HTTPError, 'HTTP 404')
   end
 
   it 'follows a relative redirect without reading its body' do
