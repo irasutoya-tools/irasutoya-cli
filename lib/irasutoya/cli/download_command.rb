@@ -32,13 +32,17 @@ module Irasutoya
         return download_page(@page_url, transfer, &) unless @input
 
         next_suffixes = Hash.new(0)
+        metadata_suffixes = Hash.new(0) if @metadata
         HtmlPage.with_sessions do
-          DownloadList.new(@input).each { |url| download_page(url, transfer, next_suffixes, &) }
+          DownloadList.new(@input).each do |url|
+            download_page(url, transfer, next_suffixes, metadata_suffixes: metadata_suffixes, &)
+          end
         end
       end
 
-      def download_page(url, transfer, next_suffixes = Hash.new(0), &)
-        Download.new(url, @directory, metadata: @metadata).save(transfer, next_suffixes, &)
+      def download_page(url, transfer, next_suffixes = Hash.new(0), metadata_suffixes: nil, &)
+        Download.new(url, @directory, metadata: @metadata, metadata_suffixes: metadata_suffixes)
+                .save(transfer, next_suffixes, &)
       rescue Download::SaveError => e
         raise Thor::Error, e.message
       end

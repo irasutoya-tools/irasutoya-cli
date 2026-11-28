@@ -996,6 +996,41 @@ RSpec.describe 'irasutoya download' do
         .to eq(%w[cat.png cat-1.png])
     end
 
+    context 'with a URL list' do
+      let(:input_path) { File.join(@workspace, 'pages.txt') }
+
+      it 'reuses image and sidecar suffix progress together for 100 repeated pages' do
+        File.write(input_path, "#{page_url}\n" * 100)
+        allow(File).to receive(:link).and_call_original
+        expect(File).to receive(:link).with(anything, /\.png\z/).exactly(200).times.and_call_original
+        expect(File).to receive(:link).with(anything, /\.json\z/).exactly(100).times.and_call_original
+
+        expect { run_list('--input', input_path, '--metadata') }.to output.to_stdout
+
+        names = ['cat.json', *(1...100).map { |index| "cat-#{index}.json" }]
+        expect(Dir.glob('*.json', base: directory)).to match_array(names)
+      end
+
+      it 'keeps existing sidecars and retries when another writer claims the next suffix' do
+        File.write(input_path, "#{page_url}\n" * 3)
+        FileUtils.mkdir_p(directory)
+        existing_path = File.join(directory, 'cat.json')
+        competing_path = File.join(directory, 'cat-2.json')
+        File.write(existing_path, 'existing')
+        allow(File).to receive(:link).and_call_original
+        expect(File).to receive(:link).with(anything, competing_path).once.and_wrap_original do |link, source, target|
+          File.write(target, 'concurrent')
+          link.call(source, target)
+        end
+
+        expect { run_list('--input', input_path, '--metadata') }.to output.to_stdout
+
+        expect(File.read(existing_path)).to eq('existing')
+        expect(File.read(competing_path)).to eq('concurrent')
+        expect(Dir.glob('*.json', base: directory)).to match_array(%w[cat.json cat-1.json cat-2.json cat-3.json cat-4.json])
+      end
+    end
+
     it 'reports a metadata write failure after keeping the saved images' do
       allow(Tempfile).to receive(:create).and_call_original
       allow(Tempfile).to receive(:create).with('.irasutoya-', directory).and_raise(Errno::ENOSPC)
