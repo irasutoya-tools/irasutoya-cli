@@ -116,10 +116,13 @@ bundle exec exe/irasutoya search '白い猫' --jsonl |
   bundle exec exe/irasutoya download --input - --output ./images
 ```
 
-The command trims surrounding whitespace, skips blank lines, and processes
-URLs in order, including repeated entries. If a page fails, the command
-reports the line on standard error and continues with the remaining pages.
-It keeps saved images and exits with status 1 if any page failed.
+Each line may contain up to 8,192 bytes before the newline, including any
+surrounding whitespace and the carriage return in a CRLF ending. The command
+trims surrounding whitespace, skips blank lines, and processes URLs in order,
+including repeated entries. If a line exceeds the limit or a page fails, the
+command reports its line number on standard error and continues with the
+remaining entries. It keeps saved images and exits with status 1 if any entry
+failed.
 
 ## Get help
 
