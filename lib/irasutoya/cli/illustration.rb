@@ -58,8 +58,10 @@ module Irasutoya
 
         def fetch_random_feed
           deadline = TransferDeadline.new
+          sessions = Thread.current[:irasutoya_html_sessions]
+          uri = URI('https://www.irasutoya.com')
           deadline.run(FEED_TIMEOUT, FeedError, 'Random selection feed deadline exceeded') do
-            Net::HTTP.start('www.irasutoya.com', 443, use_ssl: true, max_retries: 0, ignore_eof: false) do |http|
+            with_page_connection(uri, sessions) do |http|
               deadline.with_connection(http) { read_random_feed(http) }
             end
           end
@@ -69,13 +71,15 @@ module Irasutoya
 
         def read_random_feed(http)
           limit_error = FeedError.new("Random selection feed response exceeds the #{MAX_FEED_BYTES}-byte limit")
+          body = nil
           http.request_get(random_api_path, 'Accept-Encoding' => 'identity') do |response|
             unless response.is_a?(Net::HTTPSuccess)
               raise FeedError, "Random selection feed request failed (HTTP #{response.code})"
             end
 
-            return ResponseBody.read(response, http, max_bytes: MAX_FEED_BYTES, limit_error: limit_error)
+            body = ResponseBody.read(response, http, max_bytes: MAX_FEED_BYTES, limit_error: limit_error)
           end
+          body
         end
       end
     end

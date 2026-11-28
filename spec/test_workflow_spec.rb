@@ -36,4 +36,10 @@ RSpec.describe 'The test workflow' do
     expect(upload_step.fetch('with')).not_to have_key('token')
     expect(File.read(path)).not_to include('CODECOV_TOKEN')
   end
+
+  it 'builds the gem in the test matrix' do
+    expect(test_job.fetch('steps')).to include(
+      a_hash_including('run' => 'gem build irasutoya-cli.gemspec')
+    )
+  end
 end
