@@ -56,16 +56,20 @@ module Irasutoya
         def fetch_random_feed
           deadline = TransferDeadline.new
           sessions = Thread.current[:irasutoya_html_sessions]
-          uri = URI('https://www.irasutoya.com')
           deadline.run(FEED_TIMEOUT, FeedError, 'Random selection feed deadline exceeded') do
-            with_page_connection(uri, sessions) do |http|
-              deadline.with_connection(http) { read_random_feed(http) }
-            end
+            request_random_feed(deadline, sessions)
           end
         rescue Timeout::Error
           raise FeedError, 'Random selection feed request timed out'
         rescue *CONNECTION_ERRORS => e
           raise FeedError, connection_error_message(e)
+        end
+
+        def request_random_feed(deadline, sessions)
+          uri = URI('https://www.irasutoya.com')
+          with_page_connection(uri, sessions) do |http|
+            deadline.with_connection(http) { read_random_feed(http) }
+          end
         end
 
         def connection_error_message(error)
