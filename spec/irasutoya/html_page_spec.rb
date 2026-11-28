@@ -47,6 +47,35 @@ RSpec.describe Irasutoya::Cli::HtmlPage do
       .to raise_error(Thor::Error, 'HTML response exceeds the 256-byte limit')
   end
 
+  context 'with incomplete search cards' do
+    before do
+      stub_const('Irasutoya::Cli::HtmlPage::MAX_BYTES', 512)
+      list = <<~HTML
+        <div class="box"><a href="/incomplete.html">Incomplete</a></div>
+        #{search_html}
+        <div class="box"><a></a><a>Missing URL</a></div>
+        #{search_html.sub('/cat.html', '/next.html')}
+      HTML
+      allow(respond('/search?q=cat')).to receive(:read_body).and_yield(list)
+      allow(respond('/cat.html')).to receive(:read_body).and_yield(detail)
+      allow(respond('/next.html')).to receive(:read_body).and_yield(detail)
+    end
+
+    let(:expected_urls) { [page_url, "https://#{host}/next.html"] }
+
+    it 'prints usable results in order as text' do
+      expect { Irasutoya::Cli::Runner.start(%w[search cat]) }
+        .to output(satisfy { |stdout| stdout.scan(/^Page URL:    (.+)$/).flatten == expected_urls }).to_stdout
+        .and output('').to_stderr
+    end
+
+    it 'prints usable results in order as JSON Lines' do
+      expect { run_search }
+        .to output(satisfy { |stdout| result_urls(stdout) == expected_urls }).to_stdout
+        .and output('').to_stderr
+    end
+  end
+
   it 'skips an oversized detail without a declared length and displays the next result' do
     list = search_html + search_html.sub('/cat.html', '/next.html')
     allow(respond('/search?q=cat')).to receive(:read_body).and_yield(list)
