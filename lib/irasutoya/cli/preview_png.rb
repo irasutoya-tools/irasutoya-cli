@@ -18,6 +18,8 @@ module Irasutoya
         read_header(io)
         @metadata_remaining = MAX_METADATA_BYTES
         read_chunks(io)
+        invalid_png if header_chunk.color == ChunkyPNG::COLOR_INDEXED && !palette_chunk
+
         ChunkyPNG::Canvas.from_datastream(self)
       rescue ChunkyPNG::Exception, Zlib::Error
         raise TerminalImage::UnsupportedFormat, 'Invalid PNG data'

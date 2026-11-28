@@ -152,6 +152,15 @@ RSpec.describe 'ANSI image previews' do
         .to output(/\e\[38;2;12;34;56m/).to_stdout
     end
 
+    it 'warns for an indexed PNG with no palette and renders the next indexed preview' do
+      datastream = image.to_datastream(color_mode: ChunkyPNG::COLOR_INDEXED, bit_depth: 8)
+      indexed_png = datastream.to_blob
+      datastream.palette_chunk = nil
+
+      warning = "warn: Could not preview #{urls.first}: Invalid PNG data"
+      render_previews(urls, [datastream.to_blob, indexed_png], warning:)
+    end
+
     it 'preserves indexed colors and transparency' do
       indexed = ChunkyPNG::Image.new(2, 1, ChunkyPNG::Color::TRANSPARENT)
       indexed[1, 0] = image[0, 0]
