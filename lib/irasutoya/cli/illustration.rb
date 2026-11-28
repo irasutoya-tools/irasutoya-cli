@@ -27,6 +27,14 @@ module Irasutoya
         DetailPageFetch.fetch(Irasutoya::IrasutoLink.new(title: nil, show_url: url))
       end
 
+      def self.parse_list_page(document:)
+        document.css('.box').each do |card|
+          url_anchor, title_anchor = card.css('a')
+          card.remove_class('box') unless title_anchor && url_anchor['href']
+        end
+        super
+      end
+
       class << self
         private
 
