@@ -947,6 +947,20 @@ RSpec.describe 'irasutoya download' do
       expect(paths.map { |path| File.binread(path) }).to eq(image_data)
       expect(Dir.children(directory)).to match_array(%w[cat.png cat-1.png])
     end
+
+    it 'reports a sidecar link failure at the attempted path and keeps the saved images' do
+      paths = %w[cat.png cat-1.png].map { |name| File.join(directory, name) }
+      failed_path = File.join(directory, 'cat.json')
+      allow(File).to receive(:link).and_call_original
+      allow(File).to receive(:link).with(anything, failed_path).and_raise(Errno::EACCES)
+
+      expect do
+        expect { run_download(page_url, '--metadata') }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      end.to output("Could not save metadata at #{failed_path}: #{Errno::EACCES.new.message}\n").to_stderr
+        .and output(paths.map { |path| "Saved: #{path}\n" }.join).to_stdout
+      expect(paths.map { |path| File.binread(path) }).to eq(image_data)
+      expect(Dir.children(directory)).to match_array(%w[cat.png cat-1.png])
+    end
   end
 
   def run_list(*args)

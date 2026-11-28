@@ -87,24 +87,33 @@ module Irasutoya
       end
       private_constant :TemporaryImage
 
-      class ImageLink
+      class FileLink
+        class Error < StandardError
+          attr_reader :path
+
+          def initialize(path, error)
+            @path = path
+            super(error.message)
+          end
+        end
+
         def initialize(directory)
           @directory = directory
         end
 
         def link(source, stem, ending)
-          stem = fit_stem(stem, (@filename_limit ||= filename_limit) - ending.bytesize)
+          stem = fit_stem(stem, ending)
           path = File.join(@directory, "#{stem}#{ending}")
           path.tap { File.link(source, path) }
         rescue Errno::ENAMETOOLONG => e
-          raise_save_error(path, e) if stem.empty?
+          raise Error.new(path, e) if stem.empty?
 
           stem = stem[0...-1]
           retry
         rescue SystemCallError => e
           raise if e.is_a?(Errno::EEXIST)
 
-          raise_save_error(path, e)
+          raise Error.new(path, e)
         end
 
         private
@@ -117,7 +126,8 @@ module Irasutoya
           255
         end
 
-        def fit_stem(stem, byte_limit)
+        def fit_stem(stem, ending)
+          byte_limit = (@filename_limit ||= filename_limit) - ending.bytesize
           return stem if stem.bytesize <= byte_limit
 
           bytes = 0
@@ -128,17 +138,13 @@ module Irasutoya
           end
           stem.byteslice(0, bytes)
         end
-
-        def raise_save_error(path, error)
-          raise SaveError, TerminalOutput.escape_controls("Could not save image at #{path}: #{error.message}")
-        end
       end
-      private_constant :ImageLink
+      private_constant :FileLink
 
       class Metadata
-        def initialize(directory, image_link)
+        def initialize(directory, file_link)
           @directory = directory
-          @image_link = image_link
+          @file_link = file_link
         end
 
         def save(illustration, saved_paths, page_uri)
@@ -172,10 +178,12 @@ module Irasutoya
           index = 0
           loop do
             ending = index.zero? ? '.json' : "-#{index}.json"
-            return @image_link.link(source, stem, ending)
+            return @file_link.link(source, stem, ending)
           rescue Errno::EEXIST
             index += 1
           end
+        rescue FileLink::Error => e
+          raise SaveError, TerminalOutput.escape_controls("Could not save metadata at #{e.path}: #{e.message}")
         end
       end
       private_constant :Metadata
@@ -201,7 +209,7 @@ module Irasutoya
 
       def prepare_directory
         FileUtils.mkdir_p(@directory)
-        @image_link = nil
+        @file_link = nil
       rescue SystemCallError => e
         raise SaveError, TerminalOutput.escape_controls("Could not create output directory #{@directory}: #{e.message}")
       end
@@ -238,7 +246,7 @@ module Irasutoya
       end
 
       def save_metadata(illustration, saved_paths)
-        path = Metadata.new(@directory, image_link).save(illustration, saved_paths, @page_uri)
+        path = Metadata.new(@directory, file_link).save(illustration, saved_paths, @page_uri)
         yield path
       end
 
@@ -275,16 +283,16 @@ module Irasutoya
         stem = filename.delete_suffix(extension)
         next_suffixes[filename].step do |index|
           ending = index.zero? ? extension : "-#{index}#{extension}"
-          path = image_link.link(source, stem, ending)
-          next_suffixes[filename] = index + 1
-          return path
+          return file_link.link(source, stem, ending).tap { next_suffixes[filename] = index + 1 }
         rescue Errno::EEXIST
           next
         end
+      rescue FileLink::Error => e
+        raise SaveError, TerminalOutput.escape_controls("Could not save image at #{e.path}: #{e.message}")
       end
 
-      def image_link
-        @image_link ||= ImageLink.new(@directory)
+      def file_link
+        @file_link ||= FileLink.new(@directory)
       end
     end
   end
