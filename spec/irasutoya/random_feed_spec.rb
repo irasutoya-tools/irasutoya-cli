@@ -14,7 +14,9 @@ RSpec.describe 'Random selection feed' do
 
   before do
     allow(Net::HTTP).to receive(:start).with('www.irasutoya.com', 443, use_ssl: true, max_retries: 0,
-                                           ignore_eof: false).and_yield(http)
+                                           ignore_eof: false).and_return(http)
+    allow(http).to receive(:started?).and_return(true)
+    allow(http).to receive(:finish)
     expect(http).to receive(:request_get).with(
       %r{\A/feeds/posts/summary\?start-index=\d+&max-results=1&alt=json-in-script\z}, headers
     ).and_yield(feed)
