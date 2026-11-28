@@ -229,9 +229,8 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
         illustration = Irasutoya::Cli::Illustration
         allow(illustration).to receive(:random).and_call_original
         allow(illustration).to receive(:random_url).and_return('http://www.irasutoya.com/cat.html')
-        http = instance_double(Net::HTTP)
         expect(Net::HTTP).to receive(:start).with('www.irasutoya.com', 443, use_ssl: true, max_retries: 0,
-                                                  ignore_eof: false).and_yield(http)
+                                                  ignore_eof: false).and_return(http)
         response = Net::HTTPOK.new('1.1', '200', 'OK')
         allow(http).to receive(:request_get).with('/cat.html', 'Accept-Encoding' => 'identity').and_yield(response)
         allow(response).to receive(:read_body).and_yield('<div class="entry"><img src="http://example.com/cat.png"></div>')
@@ -244,9 +243,8 @@ RSpec.describe Irasutoya::Cli do # rubocop:disable Metrics/BlockLength
         illustration = Irasutoya::Cli::Illustration
         allow(illustration).to receive(:random).and_call_original
         allow(illustration).to receive(:random_url).and_return('https://www.irasutoya.com/cat.html')
-        http = instance_double(Net::HTTP)
         expect(Net::HTTP).to receive(:start).with('www.irasutoya.com', 443, use_ssl: true, max_retries: 0,
-                                                  ignore_eof: false).and_yield(http)
+                                                  ignore_eof: false).and_return(http)
         response = Net::HTTPOK.new('1.1', '200', 'OK')
         allow(http).to receive(:request_get).with('/cat.html', 'Accept-Encoding' => 'identity').and_yield(response)
         allow(response).to receive(:read_body).and_yield(<<~HTML)

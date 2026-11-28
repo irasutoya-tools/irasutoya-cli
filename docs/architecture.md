@@ -1,3 +1,8 @@
+---
+layout: page
+title: CLI architecture
+---
+
 # CLI architecture
 
 Start with [the executable](../exe/irasutoya), which loads the CLI and starts

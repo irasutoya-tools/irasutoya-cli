@@ -78,6 +78,7 @@ See the [CLI reference](https://github.com/irasutoya-tools/irasutoya-cli/blob/ma
 for checkout command arguments, output, and preview behavior.
 See [FAQ and troubleshooting](https://github.com/irasutoya-tools/irasutoya-cli/blob/master/docs/troubleshooting.md)
 for help with missing commands, previews, and download destinations.
+These guides are also published at https://irasutoya-tools.github.io/irasutoya-cli/.
 
 ## Contributing
 
